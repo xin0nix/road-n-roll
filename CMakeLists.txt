@@ -8,7 +8,7 @@ set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 set(CMAKE_CXX_SCAN_FOR_INCLUDES OFF)
 
 # Specify the Boost libraries you need, including json
-set(BOOST_INCLUDE_LIBRARIES asio beast json)
+set(BOOST_INCLUDE_LIBRARIES asio beast json uuid)
 set(BOOST_ENABLE_CMAKE ON)
 
 include(FetchContent)
