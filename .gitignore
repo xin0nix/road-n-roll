@@ -1,0 +1,9 @@
+# IDE
+.vscode
+.cache
+
+# Build
+build/
+
+# Python
+.venv
