@@ -1,8 +1,5 @@
-add_executable(core main.cpp)
+add_executable(CoreApp main.cpp)
 
-target_link_libraries(core PRIVATE
-    Boost::asio
-    Boost::beast
-    Boost::json
-    Boost::uuid
+target_link_libraries(CoreApp PRIVATE
+    CoreLib
 )
