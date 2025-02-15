@@ -22,26 +22,9 @@ namespace urls {
 
 namespace detail {
 
-// A path segment template
-class segment_template {
-  enum class modifier : unsigned char {
-    none,
-    // {id?}
-    optional,
-    // {id*}
-    star,
-    // {id+}
-    plus
-  };
-
-  std::string str_;
-  bool is_literal_ = true;
-  modifier modifier_ = modifier::none;
-
-  friend struct segment_template_rule_t;
-
-public:
-  segment_template() = default;
+// Паттерн сегмента пути к ресурсу
+struct SegmentPattern {
+  SegmentPattern() = default;
 
   bool match(pct_string_view seg) const;
 
@@ -63,7 +46,7 @@ public:
 
   bool is_plus() const { return modifier_ == modifier::plus; }
 
-  friend bool operator==(segment_template const &a, segment_template const &b) {
+  friend bool operator==(SegmentPattern const &a, SegmentPattern const &b) {
     if (a.is_literal_ != b.is_literal_)
       return false;
     if (a.is_literal_)
@@ -71,39 +54,52 @@ public:
     return a.modifier_ == b.modifier_;
   }
 
-  // segments have precedence:
-  //     - literal
-  //     - unique
-  //     - optional
-  //     - plus
-  //     - star
-  friend bool operator<(segment_template const &a, segment_template const &b) {
+  // Сегменты имеют следующий приоритет:
+  //     - литерал
+  //     - уникальный
+  //     - опциональный
+  //     - плюс
+  //     - звездочка
+  friend bool operator<(SegmentPattern const &a, SegmentPattern const &b) {
     if (b.is_literal())
       return false;
     if (a.is_literal())
       return !b.is_literal();
     return a.modifier_ < b.modifier_;
   }
+
+private:
+  enum class modifier : unsigned char {
+    none,
+    // {id?}
+    optional,
+    // {id*}
+    star,
+    // {id+}
+    plus
+  };
+
+  std::string str_;
+  bool is_literal_ = true;
+  modifier modifier_ = modifier::none;
+
+  friend struct SegmentPatternRule;
 };
 
-// A segment template is either a literal string
-// or a replacement field (as in a format_string).
-// Fields cannot contain format specs and might
-// have one of the following modifiers:
-// - ?: optional segment
-// - *: zero or more segments
-// - +: one or more segments
-struct segment_template_rule_t {
-  using value_type = segment_template;
+// Паттерн сегмента - это либо литеральная строка, либо поле замены (как в
+// format_string). Поля не могут содержать спецификаторы формата, но могут иметь
+// один из следующих модификаторов:
+// - ?: опциональный сегмент
+// - *: ноль или более сегментов
+// - +: один или более сегментов
+struct SegmentPatternRule {
+  using value_type = SegmentPattern;
 
   system::result<value_type> parse(char const *&it,
                                    char const *end) const noexcept;
 };
 
-class router_base {
-  void *impl_{nullptr};
-
-public:
+struct router_base {
   // A type-erased router resource
   struct any_resource {
     virtual ~any_resource() = default;
@@ -120,49 +116,47 @@ protected:
   any_resource const *find_impl(segments_encoded_view path,
                                 core::string_view *&matches,
                                 core::string_view *&names) const noexcept;
+
+private:
+  void *impl_{nullptr};
 };
 
-using child_idx_vector = std::vector<std::size_t>;
+using ChildIdxVector = std::vector<std::size_t>;
 
-// A node in the resource tree
-// Each segment in the resource tree might be
-// associated with
-struct node {
+// Узел в дереве ресурсов
+// Каждый сегмент в дереве ресурсов может быть связан с:
+struct ResourceNode {
   static constexpr std::size_t npos{std::size_t(-1)};
 
-  // literal segment or replacement field
-  segment_template seg{};
+  // Литеральный сегмент или поле замены
+  SegmentPattern seg{};
 
-  // A pointer to the resource
+  // FIXME(xin0nix): меня смущает сырой указатель
+  // Указатель на ресурс
   router_base::any_resource const *resource{nullptr};
 
-  // The complete match for the resource
+  // Полное совпадение для ресурса
   std::string path_template;
 
-  // Index of the parent node in the
-  // implementation pool of nodes
+  // Индекс родительского узла в реализации пула узлов
   std::size_t parent_idx{npos};
 
-  // Index of child nodes in the pool
-  child_idx_vector child_idx;
+  // Индексы дочерних узлов в пуле узлов
+  ChildIdxVector child_idx;
 };
 
-class impl {
-  // Pool of nodes in the resource tree
-  std::vector<node> nodes_;
-
-public:
-  impl() {
-    // root node with no resource
-    nodes_.push_back(node{});
+struct ResourceTree {
+  ResourceTree() {
+    // Корневой узел без каких-либо связанных с ним ресурсов
+    nodes_.push_back(ResourceNode{});
   }
 
-  ~impl() {
+  ~ResourceTree() {
     for (auto &r : nodes_)
       delete r.resource;
   }
 
-  // include a node for a resource
+  // Добавим узел связанный с ресурсом
   void insert_impl(core::string_view path, router_base::any_resource const *v);
 
   // match a node and return the element
@@ -172,19 +166,22 @@ public:
 
 private:
   // try to match from this root node
-  node const *try_match(segments_encoded_view::const_iterator it,
-                        segments_encoded_view::const_iterator end,
-                        node const *root, int level,
-                        core::string_view *&matches,
-                        core::string_view *&ids) const;
+  ResourceNode const *try_match(segments_encoded_view::const_iterator it,
+                                segments_encoded_view::const_iterator end,
+                                ResourceNode const *root, int level,
+                                core::string_view *&matches,
+                                core::string_view *&ids) const;
 
   // check if a node has a resource when we
   // also consider optional paths through
   // the child nodes.
-  static node const *find_optional_resource(const node *root,
-                                            std::vector<node> const &ns,
-                                            core::string_view *&matches,
-                                            core::string_view *&ids);
+  static ResourceNode const *
+  find_optional_resource(const ResourceNode *root,
+                         std::vector<ResourceNode> const &ns,
+                         core::string_view *&matches, core::string_view *&ids);
+
+  // Pool of nodes in the resource tree
+  std::vector<ResourceNode> nodes_;
 };
 
 } // namespace detail

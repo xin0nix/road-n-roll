@@ -29,7 +29,7 @@ namespace boost {
 namespace urls {
 namespace detail {
 
-constexpr auto segment_template_rule = segment_template_rule_t{};
+constexpr auto segment_template_rule = SegmentPatternRule{};
 
 constexpr auto path_template_rule = grammar::tuple_rule(
     grammar::squelch(grammar::optional_rule(grammar::delim_rule('/'))),
@@ -38,15 +38,15 @@ constexpr auto path_template_rule = grammar::tuple_rule(
         grammar::tuple_rule(grammar::squelch(grammar::delim_rule('/')),
                             segment_template_rule)));
 
-bool segment_template::match(pct_string_view seg) const {
+bool SegmentPattern::match(pct_string_view seg) const {
   if (is_literal_)
     return *seg == str_;
 
-  // other nodes match any string
+  // Другие узлы матчатся с любой строкой
   return true;
 }
 
-core::string_view segment_template::id() const {
+core::string_view SegmentPattern::id() const {
   // if (is_literal_) return {};
   BOOST_ASSERT(!is_literal());
   core::string_view r = {str_};
@@ -57,10 +57,9 @@ core::string_view segment_template::id() const {
   return r;
 }
 
-auto segment_template_rule_t::parse(char const *&it,
-                                    char const *end) const noexcept
+auto SegmentPatternRule::parse(char const *&it, char const *end) const noexcept
     -> system::result<value_type> {
-  segment_template t;
+  SegmentPattern t;
   if (it != end && *it == '{') {
     // replacement field
     auto it0 = it;
@@ -78,11 +77,11 @@ auto segment_template_rule_t::parse(char const *&it,
         t.str_ = core::string_view(it0, send + 1);
         t.is_literal_ = false;
         if (s.ends_with('?'))
-          t.modifier_ = segment_template::modifier::optional;
+          t.modifier_ = SegmentPattern::modifier::optional;
         else if (s.ends_with('*'))
-          t.modifier_ = segment_template::modifier::star;
+          t.modifier_ = SegmentPattern::modifier::star;
         else if (s.ends_with('+'))
-          t.modifier_ = segment_template::modifier::plus;
+          t.modifier_ = SegmentPattern::modifier::plus;
         return t;
       }
     }
@@ -96,10 +95,9 @@ auto segment_template_rule_t::parse(char const *&it,
   return t;
 }
 
-node const *impl::find_optional_resource(const node *root,
-                                         std::vector<node> const &ns,
-                                         core::string_view *&matches,
-                                         core::string_view *&ids) {
+ResourceNode const *ResourceTree::find_optional_resource(
+    const ResourceNode *root, std::vector<ResourceNode> const &ns,
+    core::string_view *&matches, core::string_view *&ids) {
   BOOST_ASSERT(root);
   if (root->resource)
     return root;
@@ -123,8 +121,8 @@ node const *impl::find_optional_resource(const node *root,
   return nullptr;
 }
 
-void impl::insert_impl(core::string_view path,
-                       router_base::any_resource const *v) {
+void ResourceTree::insert_impl(core::string_view path,
+                               router_base::any_resource const *v) {
   // Parse dynamic route segments
   if (path.starts_with("/"))
     path.remove_prefix(1);
@@ -138,7 +136,7 @@ void impl::insert_impl(core::string_view path,
   auto end = segs.end();
 
   // Iterate existing nodes
-  node *cur = &nodes_.front();
+  ResourceNode *cur = &nodes_.front();
   int level = 0;
   while (it != end) {
     core::string_view seg = (*it).string();
@@ -158,7 +156,7 @@ void impl::insert_impl(core::string_view path,
       // if it carries no resource
       std::size_t p_idx = cur->parent_idx;
       if (cur == &nodes_.back() && !cur->resource && cur->child_idx.empty()) {
-        node *p = &nodes_[p_idx];
+        ResourceNode *p = &nodes_[p_idx];
         std::size_t cur_idx = cur - nodes_.data();
         p->child_idx.erase(
             std::remove(p->child_idx.begin(), p->child_idx.end(), cur_idx));
@@ -183,7 +181,7 @@ void impl::insert_impl(core::string_view path,
       cur = &nodes_[*cit];
     } else {
       // create child if it doesn't exist
-      node child;
+      ResourceNode child;
       child.seg = *it;
       std::size_t cur_id = cur - nodes_.data();
       child.parent_idx = cur_id;
@@ -213,11 +211,10 @@ void impl::insert_impl(core::string_view path,
   cur->path_template = path;
 }
 
-node const *impl::try_match(segments_encoded_view::const_iterator it,
-                            segments_encoded_view::const_iterator end,
-                            node const *cur, int level,
-                            core::string_view *&matches,
-                            core::string_view *&ids) const {
+ResourceNode const *ResourceTree::try_match(
+    segments_encoded_view::const_iterator it,
+    segments_encoded_view::const_iterator end, ResourceNode const *cur,
+    int level, core::string_view *&matches, core::string_view *&ids) const {
   while (it != end) {
     pct_string_view s = *it;
     if (*s == ".") {
@@ -286,7 +283,7 @@ node const *impl::try_match(segments_encoded_view::const_iterator it,
     }
 
     // attempt to match each child node
-    node const *r = nullptr;
+    ResourceNode const *r = nullptr;
     bool match_any = false;
     for (auto i : cur->child_idx) {
       auto &c = nodes_[i];
@@ -453,33 +450,33 @@ node const *impl::try_match(segments_encoded_view::const_iterator it,
 }
 
 router_base::any_resource const *
-impl::find_impl(segments_encoded_view path, core::string_view *&matches,
-                core::string_view *&ids) const {
+ResourceTree::find_impl(segments_encoded_view path, core::string_view *&matches,
+                        core::string_view *&ids) const {
   // parse_path is inconsistent for empty paths
   if (path.empty())
     path = segments_encoded_view("./");
 
   // Iterate nodes from the root
-  node const *p =
+  ResourceNode const *p =
       try_match(path.begin(), path.end(), &nodes_.front(), 0, matches, ids);
   if (p)
     return p->resource;
   return nullptr;
 }
 
-router_base::router_base() : impl_(new impl{}) {}
+router_base::router_base() : impl_(new ResourceTree{}) {}
 
-router_base::~router_base() { delete reinterpret_cast<impl *>(impl_); }
+router_base::~router_base() { delete reinterpret_cast<ResourceTree *>(impl_); }
 
 void router_base::insert_impl(core::string_view s, any_resource const *v) {
-  reinterpret_cast<impl *>(impl_)->insert_impl(s, v);
+  reinterpret_cast<ResourceTree *>(impl_)->insert_impl(s, v);
 }
 
 auto router_base::find_impl(segments_encoded_view path,
                             core::string_view *&matches,
                             core::string_view *&ids) const noexcept
     -> any_resource const * {
-  return reinterpret_cast<impl *>(impl_)->find_impl(path, matches, ids);
+  return reinterpret_cast<ResourceTree *>(impl_)->find_impl(path, matches, ids);
 }
 
 } // namespace detail
