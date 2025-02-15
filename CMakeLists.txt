@@ -22,21 +22,4 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(Boost)
 
-# Fetch Google Test
-FetchContent_Declare(
-  googletest
-  URL https://github.com/google/googletest/archive/refs/tags/v1.15.2.zip
-)
-FetchContent_MakeAvailable(googletest)
-
-# Fetch Google Mock
-FetchContent_Declare(
-  gmock
-  URL https://github.com/google/googletest/archive/refs/tags/v1.15.2.zip
-  SOURCE_SUBDIR googletest-1.15.2/googlemock
-)
-FetchContent_MakeAvailable(gmock)
-
-enable_testing()
-
 add_subdirectory(core)

@@ -9,7 +9,6 @@
 
 #pragma once
 
-#include <boost/mp11/algorithm.hpp>
 #include <boost/url/decode_view.hpp>
 #include <boost/url/detail/config.hpp>
 #include <boost/url/detail/except.hpp>
@@ -22,6 +21,84 @@ namespace boost {
 namespace urls {
 
 namespace detail {
+
+// A path segment template
+class segment_template {
+  enum class modifier : unsigned char {
+    none,
+    // {id?}
+    optional,
+    // {id*}
+    star,
+    // {id+}
+    plus
+  };
+
+  std::string str_;
+  bool is_literal_ = true;
+  modifier modifier_ = modifier::none;
+
+  friend struct segment_template_rule_t;
+
+public:
+  segment_template() = default;
+
+  bool match(pct_string_view seg) const;
+
+  core::string_view string() const { return str_; }
+
+  core::string_view id() const;
+
+  bool empty() const { return str_.empty(); }
+
+  bool is_literal() const { return is_literal_; }
+
+  bool has_modifier() const {
+    return !is_literal() && modifier_ != modifier::none;
+  }
+
+  bool is_optional() const { return modifier_ == modifier::optional; }
+
+  bool is_star() const { return modifier_ == modifier::star; }
+
+  bool is_plus() const { return modifier_ == modifier::plus; }
+
+  friend bool operator==(segment_template const &a, segment_template const &b) {
+    if (a.is_literal_ != b.is_literal_)
+      return false;
+    if (a.is_literal_)
+      return a.str_ == b.str_;
+    return a.modifier_ == b.modifier_;
+  }
+
+  // segments have precedence:
+  //     - literal
+  //     - unique
+  //     - optional
+  //     - plus
+  //     - star
+  friend bool operator<(segment_template const &a, segment_template const &b) {
+    if (b.is_literal())
+      return false;
+    if (a.is_literal())
+      return !b.is_literal();
+    return a.modifier_ < b.modifier_;
+  }
+};
+
+// A segment template is either a literal string
+// or a replacement field (as in a format_string).
+// Fields cannot contain format specs and might
+// have one of the following modifiers:
+// - ?: optional segment
+// - *: zero or more segments
+// - +: one or more segments
+struct segment_template_rule_t {
+  using value_type = segment_template;
+
+  system::result<value_type> parse(char const *&it,
+                                   char const *end) const noexcept;
+};
 
 class router_base {
   void *impl_{nullptr};
@@ -43,6 +120,146 @@ protected:
   any_resource const *find_impl(segments_encoded_view path,
                                 core::string_view *&matches,
                                 core::string_view *&names) const noexcept;
+};
+
+// a small vector for child nodes...
+// we shouldn't expect many children per node, and
+// we don't want to allocate for that. But we also
+// cannot cap the max number of child nodes because
+// especially the root nodes can potentially an
+// exponentially higher number of child nodes.
+class child_idx_vector {
+  static constexpr std::size_t N = 5;
+  std::size_t static_child_idx_[N]{};
+  std::size_t *child_idx{nullptr};
+  std::size_t size_{0};
+  std::size_t cap_{0};
+
+public:
+  ~child_idx_vector() { delete[] child_idx; }
+
+  child_idx_vector() = default;
+
+  child_idx_vector(child_idx_vector const &other)
+      : size_{other.size_}, cap_{other.cap_} {
+    if (other.child_idx) {
+      child_idx = new std::size_t[cap_];
+      std::memcpy(child_idx, other.child_idx, size_ * sizeof(std::size_t));
+      return;
+    }
+    std::memcpy(static_child_idx_, other.static_child_idx_,
+                size_ * sizeof(std::size_t));
+  }
+
+  child_idx_vector(child_idx_vector &&other)
+      : child_idx{other.child_idx}, size_{other.size_}, cap_{other.cap_} {
+    std::memcpy(static_child_idx_, other.static_child_idx_, N);
+    other.child_idx = nullptr;
+  }
+
+  bool empty() const { return size_ == 0; }
+
+  std::size_t size() const { return size_; }
+
+  std::size_t *begin() {
+    if (child_idx)
+      return child_idx;
+    return static_child_idx_;
+  }
+
+  std::size_t *end() { return begin() + size_; }
+
+  std::size_t const *begin() const {
+    if (child_idx)
+      return child_idx;
+    return static_child_idx_;
+  }
+
+  std::size_t const *end() const { return begin() + size_; }
+
+  void erase(std::size_t *it) {
+    BOOST_ASSERT(it - begin() >= 0);
+    std::memmove(it - 1, it, end() - it);
+    --size_;
+  }
+
+  void push_back(std::size_t v) {
+    if (size_ == N && !child_idx) {
+      child_idx = new std::size_t[N * 2];
+      cap_ = N * 2;
+      std::memcpy(child_idx, static_child_idx_, N * sizeof(std::size_t));
+    } else if (child_idx && size_ == cap_) {
+      auto *tmp = new std::size_t[cap_ * 2];
+      std::memcpy(tmp, child_idx, cap_ * sizeof(std::size_t));
+      delete[] child_idx;
+      child_idx = tmp;
+      cap_ = cap_ * 2;
+    }
+    begin()[size_++] = v;
+  }
+};
+
+// A node in the resource tree
+// Each segment in the resource tree might be
+// associated with
+struct node {
+  static constexpr std::size_t npos{std::size_t(-1)};
+
+  // literal segment or replacement field
+  detail::segment_template seg{};
+
+  // A pointer to the resource
+  router_base::any_resource const *resource{nullptr};
+
+  // The complete match for the resource
+  std::string path_template;
+
+  // Index of the parent node in the
+  // implementation pool of nodes
+  std::size_t parent_idx{npos};
+
+  // Index of child nodes in the pool
+  detail::child_idx_vector child_idx;
+};
+
+class impl {
+  // Pool of nodes in the resource tree
+  std::vector<node> nodes_;
+
+public:
+  impl() {
+    // root node with no resource
+    nodes_.push_back(node{});
+  }
+
+  ~impl() {
+    for (auto &r : nodes_)
+      delete r.resource;
+  }
+
+  // include a node for a resource
+  void insert_impl(core::string_view path, router_base::any_resource const *v);
+
+  // match a node and return the element
+  router_base::any_resource const *find_impl(segments_encoded_view path,
+                                             core::string_view *&matches,
+                                             core::string_view *&ids) const;
+
+private:
+  // try to match from this root node
+  node const *try_match(segments_encoded_view::const_iterator it,
+                        segments_encoded_view::const_iterator end,
+                        node const *root, int level,
+                        core::string_view *&matches,
+                        core::string_view *&ids) const;
+
+  // check if a node has a resource when we
+  // also consider optional paths through
+  // the child nodes.
+  static node const *find_optional_resource(const node *root,
+                                            std::vector<node> const &ns,
+                                            core::string_view *&matches,
+                                            core::string_view *&ids);
 };
 
 } // namespace detail
@@ -98,11 +315,11 @@ public:
 template <class T>
 template <class U>
 void router<T>::insert(core::string_view pattern, U &&v) {
-  BOOST_STATIC_ASSERT(std::is_same<T, U>::value ||
-                      std::is_convertible<U, T>::value ||
-                      std::is_base_of<T, U>::value);
-  using U_ = typename std::decay<typename std::conditional<
-      std::is_base_of<T, U>::value, U, T>::type>::type;
+  BOOST_STATIC_ASSERT(std::is_same_v<T, U> || std::is_convertible_v<U, T> ||
+                      std::is_base_of_v<T, U>);
+  using U_ = typename std::decay<
+      typename std::conditional<std::is_base_of_v<T, U>, U, T>::type>::type;
+
   struct impl : any_resource {
     U_ u;
 
@@ -112,6 +329,7 @@ void router<T>::insert(core::string_view pattern, U &&v) {
       return static_cast<T const *>(&u);
     }
   };
+
   any_resource const *p = new impl(std::forward<U>(v));
   insert_impl(pattern, p);
 }

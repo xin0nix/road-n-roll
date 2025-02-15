@@ -9,15 +9,18 @@
 
 #pragma once
 
+#include "boost/throw_exception.hpp"
 #include <boost/url/detail/config.hpp>
 #include <boost/url/string_view.hpp>
+
+#include <span>
+#include <vector>
 
 namespace boost {
 namespace urls {
 
 // Base route match results
-class matches_base {
-public:
+struct matches_base {
   using iterator = core::string_view *;
   using const_iterator = core::string_view const *;
   using size_type = std::size_t;
@@ -61,39 +64,46 @@ public:
 };
 
 /// A range type with the match results
-template <std::size_t N = 20> class matches_storage : public matches_base {
-  core::string_view matches_storage_[N];
-  core::string_view ids_storage_[N];
-  std::size_t size_;
+struct matches_storage : matches_base {
+  std::vector<core::string_view> matches_storage_;
+  std::vector<core::string_view> ids_storage_;
 
-  matches_storage(core::string_view matches[N], core::string_view ids[N],
-                  std::size_t n) {
-    for (std::size_t i = 0; i < n; ++i) {
-      matches_storage_[i] = matches[i];
-      ids_storage_[i] = ids[i];
+  matches_storage(std::span<core::string_view> matches,
+                  std::span<core::string_view> ids) {
+    BOOST_ASSERT(matches.size() == ids.size());
+    resize(matches.size());
+    for (std::size_t i = 0; i < matches.size(); ++i) {
+      matches_storage_.push_back(matches[i]);
+      ids_storage_.push_back(ids[i]);
     }
   }
 
-  virtual core::string_view *matches() override { return matches_storage_; }
+  virtual core::string_view *matches() override {
+    return matches_storage_.data();
+  }
 
-  virtual core::string_view *ids() override { return ids_storage_; }
+  virtual core::string_view *ids() override { return ids_storage_.data(); }
 
-public:
   matches_storage() = default;
 
   virtual core::string_view const *matches() const override {
-    return matches_storage_;
+    return matches_storage_.data();
   }
 
-  virtual core::string_view const *ids() const override { return ids_storage_; }
+  virtual core::string_view const *ids() const override {
+    return ids_storage_.data();
+  }
 
-  virtual std::size_t size() const override { return size_; }
+  virtual std::size_t size() const override { return matches_storage_.size(); }
 
-  virtual void resize(std::size_t n) override { size_ = n; }
+  virtual void resize(std::size_t n) override {
+    matches_storage_.resize(n);
+    ids_storage_.resize(n);
+  }
 };
 
 /// Default type for storing route match results
-using matches = matches_storage<20>;
+using matches = matches_storage;
 
 } // namespace urls
 } // namespace boost

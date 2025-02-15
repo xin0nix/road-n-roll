@@ -5,6 +5,7 @@ add_subdirectory(router)
 add_library(CoreLib OBJECT ${CPP_SOURCES})
 
 target_link_libraries(CoreLib PUBLIC
+    Router
     Boost::asio
     Boost::beast
     Boost::json
