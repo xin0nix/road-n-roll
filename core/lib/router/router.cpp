@@ -7,6 +7,8 @@
 // Official repository: https://github.com/boostorg/url
 
 #include "router.hpp"
+#include "boost/core/detail/string_view.hpp"
+#include "boost/url/url.hpp"
 
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/beast/core.hpp>
@@ -29,15 +31,6 @@ namespace boost {
 namespace urls {
 namespace detail {
 
-constexpr auto segment_template_rule = SegmentPatternRule{};
-
-constexpr auto path_template_rule = grammar::tuple_rule(
-    grammar::squelch(grammar::optional_rule(grammar::delim_rule('/'))),
-    grammar::range_rule(
-        segment_template_rule,
-        grammar::tuple_rule(grammar::squelch(grammar::delim_rule('/')),
-                            segment_template_rule)));
-
 bool SegmentPattern::match(pct_string_view seg) const {
   if (is_literal_)
     return *seg == str_;
@@ -56,6 +49,28 @@ core::string_view SegmentPattern::id() const {
     r.remove_suffix(1);
   return r;
 }
+
+// Паттерн сегмента - это либо строковый литерал, либо поле замены (как в
+// format_string). Поля не могут содержать спецификаторы формата, но могут иметь
+// один из следующих модификаторов:
+// - ?: опциональный сегмент
+// - *: ноль или более сегментов
+// - +: один или более сегментов
+struct SegmentPatternRule {
+  using value_type = SegmentPattern;
+
+  system::result<value_type> parse(char const *&it,
+                                   char const *end) const noexcept;
+};
+
+constexpr auto kSegmentPatternRule = SegmentPatternRule{};
+
+constexpr auto kPathPatternRule = grammar::tuple_rule(
+    grammar::squelch(grammar::optional_rule(grammar::delim_rule('/'))),
+    grammar::range_rule(
+        kSegmentPatternRule,
+        grammar::tuple_rule(grammar::squelch(grammar::delim_rule('/')),
+                            kSegmentPatternRule)));
 
 auto SegmentPatternRule::parse(char const *&it, char const *end) const noexcept
     -> system::result<value_type> {
@@ -121,15 +136,17 @@ ResourceNode const *ResourceTree::find_optional_resource(
   return nullptr;
 }
 
-void ResourceTree::insert_impl(core::string_view path,
+void ResourceTree::insert_impl(core::string_view non_normalized_path,
                                router_base::any_resource const *v) {
+  urls::url u(non_normalized_path);
+  core::string_view path = u.normalize_path().encoded_path();
   // Parse dynamic route segments
   if (path.starts_with("/"))
     path.remove_prefix(1);
-  auto segsr = grammar::parse(path, detail::path_template_rule);
+  auto segsr = grammar::parse(path, detail::kPathPatternRule);
   if (!segsr) {
     delete v;
-    segsr.value();
+    std::ignore = segsr.value();
   }
   auto segs = *segsr;
   auto it = segs.begin();
@@ -140,38 +157,7 @@ void ResourceTree::insert_impl(core::string_view path,
   int level = 0;
   while (it != end) {
     core::string_view seg = (*it).string();
-    if (seg == ".") {
-      ++it;
-      continue;
-    }
-    if (seg == "..") {
-      // discount unmatched leaf or
-      // keep track of levels behind root
-      if (cur == &nodes_.front()) {
-        --level;
-        ++it;
-        continue;
-      }
-      // move to parent deleting current
-      // if it carries no resource
-      std::size_t p_idx = cur->parent_idx;
-      if (cur == &nodes_.back() && !cur->resource && cur->child_idx.empty()) {
-        ResourceNode *p = &nodes_[p_idx];
-        std::size_t cur_idx = cur - nodes_.data();
-        p->child_idx.erase(
-            std::remove(p->child_idx.begin(), p->child_idx.end(), cur_idx));
-        nodes_.pop_back();
-      }
-      cur = &nodes_[p_idx];
-      ++it;
-      continue;
-    }
-    // discount unmatched root parent
-    if (level < 0) {
-      ++level;
-      ++it;
-      continue;
-    }
+    BOOST_ASSERT(!seg.starts_with("."));
     // look for child
     auto cit = std::find_if(
         cur->child_idx.begin(), cur->child_idx.end(),
@@ -188,6 +174,7 @@ void ResourceTree::insert_impl(core::string_view path,
       nodes_.push_back(std::move(child));
       nodes_[cur_id].child_idx.push_back(nodes_.size() - 1);
       if (nodes_[cur_id].child_idx.size() > 1) {
+        // FIXME(xin0nix): std::sort?
         // keep nodes sorted
         auto &cs = nodes_[cur_id].child_idx;
         std::size_t n = cs.size() - 1;
@@ -203,10 +190,7 @@ void ResourceTree::insert_impl(core::string_view path,
     }
     ++it;
   }
-  if (level != 0) {
-    delete v;
-    urls::detail::throw_invalid_argument();
-  }
+  BOOST_ASSERT(level != 0);
   cur->resource = v;
   cur->path_template = path;
 }
@@ -217,36 +201,7 @@ ResourceNode const *ResourceTree::try_match(
     int level, core::string_view *&matches, core::string_view *&ids) const {
   while (it != end) {
     pct_string_view s = *it;
-    if (*s == ".") {
-      // ignore segment
-      ++it;
-      continue;
-    }
-    if (*s == "..") {
-
-      // move back to the parent node
-      ++it;
-      if (level <= 0 && cur != &nodes_.front()) {
-        if (!cur->seg.is_literal()) {
-          --matches;
-          --ids;
-        }
-        cur = &nodes_[cur->parent_idx];
-      } else
-        // there's no parent, so we
-        // discount that from the implicit
-        // tree beyond terminals
-        --level;
-      continue;
-    }
-
-    // we are in the implicit tree above the
-    // root, so discount that as a level
-    if (level < 0) {
-      ++level;
-      ++it;
-      continue;
-    }
+    BOOST_ASSERT(!s.starts_with("."));
 
     // calculate the lower bound on the
     // possible number of branches to
@@ -357,21 +312,7 @@ ResourceNode const *ResourceTree::try_match(
           // won't send us to a parent
           // directory
           auto first = it;
-          std::size_t ndotdot = 0;
-          std::size_t nnondot = 0;
-          auto it1 = it;
-          while (it1 != end) {
-            if (*it1 == "..") {
-              ++ndotdot;
-              if (ndotdot >= (nnondot + c.seg.is_star()))
-                break;
-            } else if (*it1 != ".") {
-              ++nnondot;
-            }
-            ++it1;
-          }
-          if (it1 != end)
-            break;
+          BOOST_ASSERT(!it->starts_with("."));
 
           // attempt to match many
           // segments
@@ -433,11 +374,11 @@ ResourceNode const *ResourceTree::try_match(
       ++level;
     ++it;
   }
-  if (level != 0) {
-    // the path ended below or above an
-    // existing node
-    return nullptr;
-  }
+
+  // the path ended below or above an
+  // existing node
+  BOOST_ASSERT(level != 0);
+
   if (!cur->resource) {
     // we consumed all the input and reached
     // a node with no resource, but it might

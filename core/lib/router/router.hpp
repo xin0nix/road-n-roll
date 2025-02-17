@@ -55,11 +55,11 @@ struct SegmentPattern {
   }
 
   // Сегменты имеют следующий приоритет:
-  //     - литерал
-  //     - уникальный
-  //     - опциональный
-  //     - плюс
-  //     - звездочка
+  // - строковый литерал
+  // - уникальный
+  // - опциональный
+  // - плюс
+  // - звездочка
   friend bool operator<(SegmentPattern const &a, SegmentPattern const &b) {
     if (b.is_literal())
       return false;
@@ -84,19 +84,6 @@ private:
   modifier modifier_ = modifier::none;
 
   friend struct SegmentPatternRule;
-};
-
-// Паттерн сегмента - это либо литеральная строка, либо поле замены (как в
-// format_string). Поля не могут содержать спецификаторы формата, но могут иметь
-// один из следующих модификаторов:
-// - ?: опциональный сегмент
-// - *: ноль или более сегментов
-// - +: один или более сегментов
-struct SegmentPatternRule {
-  using value_type = SegmentPattern;
-
-  system::result<value_type> parse(char const *&it,
-                                   char const *end) const noexcept;
 };
 
 struct router_base {
@@ -224,52 +211,41 @@ public:
       @param path A url path with dynamic segments
       @param resource A resource the path corresponds to
    */
-  template <class U> void insert(core::string_view pattern, U &&v);
+  template <class U> void insert(core::string_view pattern, U &&v) {
+    BOOST_STATIC_ASSERT(std::is_same_v<T, U> || std::is_convertible_v<U, T> ||
+                        std::is_base_of_v<T, U>);
+    using U_ = typename std::decay<
+        typename std::conditional<std::is_base_of_v<T, U>, U, T>::type>::type;
+
+    struct impl : any_resource {
+      U_ u;
+
+      explicit impl(U &&u_) : u(std::forward<U>(u_)) {}
+
+      void const *get() const noexcept override {
+        return static_cast<T const *>(&u);
+      }
+    };
+  }
 
   /** Match URL path to corresponding resource
 
       @param request Request path
       @return The match results
    */
-  T const *find(segments_encoded_view path, matches_base &m) const noexcept;
-};
-
-template <class T>
-template <class U>
-void router<T>::insert(core::string_view pattern, U &&v) {
-  BOOST_STATIC_ASSERT(std::is_same_v<T, U> || std::is_convertible_v<U, T> ||
-                      std::is_base_of_v<T, U>);
-  using U_ = typename std::decay<
-      typename std::conditional<std::is_base_of_v<T, U>, U, T>::type>::type;
-
-  struct impl : any_resource {
-    U_ u;
-
-    explicit impl(U &&u_) : u(std::forward<U>(u_)) {}
-
-    void const *get() const noexcept override {
-      return static_cast<T const *>(&u);
+  T const *find(segments_encoded_view path, matches_base &m) const noexcept {
+    core::string_view *matches_it = m.matches();
+    core::string_view *ids_it = m.ids();
+    any_resource const *p = find_impl(path, matches_it, ids_it);
+    if (p) {
+      BOOST_ASSERT(matches_it >= m.matches());
+      m.resize(static_cast<std::size_t>(matches_it - m.matches()));
+      return reinterpret_cast<T const *>(p->get());
     }
-  };
-
-  any_resource const *p = new impl(std::forward<U>(v));
-  insert_impl(pattern, p);
-}
-
-template <class T>
-T const *router<T>::find(segments_encoded_view path,
-                         matches_base &m) const noexcept {
-  core::string_view *matches_it = m.matches();
-  core::string_view *ids_it = m.ids();
-  any_resource const *p = find_impl(path, matches_it, ids_it);
-  if (p) {
-    BOOST_ASSERT(matches_it >= m.matches());
-    m.resize(static_cast<std::size_t>(matches_it - m.matches()));
-    return reinterpret_cast<T const *>(p->get());
+    m.resize(0);
+    return nullptr;
   }
-  m.resize(0);
-  return nullptr;
-}
+};
 
 } // namespace urls
 } // namespace boost
