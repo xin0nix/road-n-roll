@@ -32,7 +32,7 @@ namespace urls {
 namespace detail {
 
 bool SegmentPattern::match(pct_string_view seg) const {
-  if (is_literal_)
+  if (isLiteral_)
     return *seg == str_;
 
   // Другие узлы матчатся с любой строкой
@@ -41,7 +41,7 @@ bool SegmentPattern::match(pct_string_view seg) const {
 
 core::string_view SegmentPattern::id() const {
   // if (is_literal_) return {};
-  BOOST_ASSERT(!is_literal());
+  BOOST_ASSERT(!isLiteral());
   core::string_view r = {str_};
   r.remove_prefix(1);
   r.remove_suffix(1);
@@ -74,7 +74,7 @@ constexpr auto kPathPatternRule = grammar::tuple_rule(
 
 auto SegmentPatternRule::parse(char const *&it, char const *end) const noexcept
     -> system::result<value_type> {
-  SegmentPattern t;
+  SegmentPattern segmentPattern;
   if (it != end && *it == '{') {
     // replacement field
     auto it0 = it;
@@ -89,15 +89,15 @@ auto SegmentPatternRule::parse(char const *&it, char const *end) const noexcept
       if (s.empty() || grammar::parse(s, id_rule)) {
         it = send + 1;
 
-        t.str_ = core::string_view(it0, send + 1);
-        t.is_literal_ = false;
+        segmentPattern.str_ = core::string_view(it0, send + 1);
+        segmentPattern.isLiteral_ = false;
         if (s.ends_with('?'))
-          t.modifier_ = SegmentPattern::modifier::optional;
+          segmentPattern.modifier_ = SegmentPattern::modifier::optional;
         else if (s.ends_with('*'))
-          t.modifier_ = SegmentPattern::modifier::star;
+          segmentPattern.modifier_ = SegmentPattern::modifier::star;
         else if (s.ends_with('+'))
-          t.modifier_ = SegmentPattern::modifier::plus;
-        return t;
+          segmentPattern.modifier_ = SegmentPattern::modifier::plus;
+        return segmentPattern;
       }
     }
     it = it0;
@@ -105,39 +105,39 @@ auto SegmentPatternRule::parse(char const *&it, char const *end) const noexcept
   // literal segment
   auto rv = grammar::parse(it, end, urls::detail::segment_rule);
   BOOST_ASSERT(rv);
-  rv->decode({}, urls::string_token::assign_to(t.str_));
-  t.is_literal_ = true;
-  return t;
+  rv->decode({}, urls::string_token::assign_to(segmentPattern.str_));
+  segmentPattern.isLiteral_ = true;
+  return segmentPattern;
 }
 
-ResourceNode const *ResourceTree::find_optional_resource(
-    const ResourceNode *root, std::vector<ResourceNode> const &ns,
+ResourceNode const *ResourceTree::findOptionalResource(
+    const ResourceNode *root, std::vector<ResourceNode> const &nodes,
     core::string_view *&matches, core::string_view *&ids) {
   BOOST_ASSERT(root);
   if (root->resource)
     return root;
-  BOOST_ASSERT(!root->child_idx.empty());
-  for (auto i : root->child_idx) {
-    auto &c = ns[i];
-    if (!c.seg.is_optional() && !c.seg.is_star())
+  BOOST_ASSERT(!root->children.empty());
+  for (auto childIdx : root->children) {
+    auto &cur = nodes[childIdx];
+    if (!cur.seg.isOptional() && !cur.seg.isStar())
       continue;
     // Child nodes are also
     // potentially optional.
     auto matches0 = matches;
     auto ids0 = ids;
     *matches++ = {};
-    *ids++ = c.seg.id();
-    auto n = find_optional_resource(&c, ns, matches, ids);
-    if (n)
-      return n;
+    *ids++ = cur.seg.id();
+    auto node = findOptionalResource(&cur, nodes, matches, ids);
+    if (node)
+      return node;
     matches = matches0;
     ids = ids0;
   }
   return nullptr;
 }
 
-void ResourceTree::insert_impl(core::string_view non_normalized_path,
-                               router_base::any_resource const *v) {
+void ResourceTree::insertImpl(core::string_view non_normalized_path,
+                              Routerbase::AnyResource const *v) {
   urls::url u(non_normalized_path);
   core::string_view path = u.normalize_path().encoded_path();
   // Parse dynamic route segments
@@ -160,9 +160,9 @@ void ResourceTree::insert_impl(core::string_view non_normalized_path,
     BOOST_ASSERT(!seg.starts_with("."));
     // look for child
     auto cit = std::find_if(
-        cur->child_idx.begin(), cur->child_idx.end(),
+        cur->children.begin(), cur->children.end(),
         [this, &it](std::size_t ci) -> bool { return nodes_[ci].seg == *it; });
-    if (cit != cur->child_idx.end()) {
+    if (cit != cur->children.end()) {
       // move to existing child
       cur = &nodes_[*cit];
     } else {
@@ -170,13 +170,13 @@ void ResourceTree::insert_impl(core::string_view non_normalized_path,
       ResourceNode child;
       child.seg = *it;
       std::size_t cur_id = cur - nodes_.data();
-      child.parent_idx = cur_id;
+      child.parent = cur_id;
       nodes_.push_back(std::move(child));
-      nodes_[cur_id].child_idx.push_back(nodes_.size() - 1);
-      if (nodes_[cur_id].child_idx.size() > 1) {
+      nodes_[cur_id].children.push_back(nodes_.size() - 1);
+      if (nodes_[cur_id].children.size() > 1) {
         // FIXME(xin0nix): std::sort?
         // keep nodes sorted
-        auto &cs = nodes_[cur_id].child_idx;
+        auto &cs = nodes_[cur_id].children;
         std::size_t n = cs.size() - 1;
         while (n) {
           if (nodes_[cs.begin()[n]].seg < nodes_[cs.begin()[n - 1]].seg)
@@ -192,10 +192,10 @@ void ResourceTree::insert_impl(core::string_view non_normalized_path,
   }
   BOOST_ASSERT(level != 0);
   cur->resource = v;
-  cur->path_template = path;
+  cur->pathPattern = path;
 }
 
-ResourceNode const *ResourceTree::try_match(
+ResourceNode const *ResourceTree::tryMatch(
     segments_encoded_view::const_iterator it,
     segments_encoded_view::const_iterator end, ResourceNode const *cur,
     int level, core::string_view *&matches, core::string_view *&ids) const {
@@ -203,51 +203,43 @@ ResourceNode const *ResourceTree::try_match(
     pct_string_view s = *it;
     BOOST_ASSERT(!s.starts_with("."));
 
-    // calculate the lower bound on the
-    // possible number of branches to
-    // determine if we need to branch.
-    // We branch when we might have more than
-    // one child matching node at this level.
-    // If so, we need to potentially branch
-    // to find which path leads to a valid
-    // resource. Otherwise, we can just
-    // consume the node and input without
-    // any recursive function calls.
+    // Вычисляем нижнюю границу возможного количества ветвей, чтобы определить,
+    // нужно ли выполнять ветвление. Мы выполняем ветвление, когда на этом
+    // уровне может быть более одного совпадающего дочернего узла. Если это так,
+    // нам потенциально нужно выполнить ветвление, чтобы найти, какой путь ведет
+    // к действительному ресурсу. В противном случае мы можем просто обработать
+    // узел и входные данные без каких-либо рекурсивных вызовов функции.
     bool branch = false;
-    if (cur->child_idx.size() > 1) {
-      int branches_lb = 0;
-      for (auto i : cur->child_idx) {
+    if (cur->children.size() > 1) {
+      int branchesLowerBound = 0;
+      for (auto i : cur->children) {
         auto &c = nodes_[i];
-        if (c.seg.is_literal() || !c.seg.has_modifier()) {
-          // a literal path counts only
-          // if it matches
-          branches_lb += c.seg.match(s);
+        if (c.seg.isLiteral() || !c.seg.hasModifier()) {
+          // Литеральный путь учитывается только если он совпадает
+          branchesLowerBound += c.seg.match(s);
         } else {
-          // everything not matching
-          // a single path counts as
-          // more than one path already
-          branches_lb = 2;
+          // Всё, что не совпадает с одним конкретным путем, уже считается более
+          // чем одним путем
+          branchesLowerBound = 2;
         }
-        if (branches_lb > 1) {
-          // already know we need to
-          // branch
+        if (branchesLowerBound > 1) {
+          // Уже знаем, что нам нужно выполнить ветвление
           branch = true;
           break;
         }
       }
     }
 
-    // attempt to match each child node
+    // Попытка сопоставить каждый дочерний узел
     ResourceNode const *r = nullptr;
     bool match_any = false;
-    for (auto i : cur->child_idx) {
+    for (auto i : cur->children) {
       auto &c = nodes_[i];
       if (c.seg.match(s)) {
-        if (c.seg.is_literal()) {
-          // just continue from the
-          // next segment
+        if (c.seg.isLiteral()) {
+          // Просто продолжаем со следующего сегмента
           if (branch) {
-            r = try_match(std::next(it), end, &c, level, matches, ids);
+            r = tryMatch(std::next(it), end, &c, level, matches, ids);
             if (r)
               break;
           } else {
@@ -255,89 +247,83 @@ ResourceNode const *ResourceTree::try_match(
             match_any = true;
             break;
           }
-        } else if (!c.seg.has_modifier()) {
-          // just continue from the
-          // next segment
+        } else if (!c.seg.hasModifier()) {
+          // Просто продолжаем со следующего сегмента
           if (branch) {
             auto matches0 = matches;
             auto ids0 = ids;
             *matches++ = *it;
             *ids++ = c.seg.id();
-            r = try_match(std::next(it), end, &c, level, matches, ids);
+            r = tryMatch(std::next(it), end, &c, level, matches, ids);
             if (r) {
               break;
             } else {
-              // rewind
+              // "Откат" (или "перемотка назад") происходит, когда алгоритм
+              // пробует определенный путь в дереве маршрутизации, но этот путь
+              // не приводит к успешному сопоставлению. В этом случае алгоритм
+              // "откатывается" назад, возвращая указатели matches и ids в их
+              // предыдущее состояние.
               matches = matches0;
               ids = ids0;
             }
           } else {
-            // only path possible
+            // Найден единственный возможный путь для продолжения поиска
             *matches++ = *it;
             *ids++ = c.seg.id();
             cur = &c;
             match_any = true;
             break;
           }
-        } else if (c.seg.is_optional()) {
-          // attempt to match by ignoring
-          // and not ignoring the segment.
-          // we first try the complete
-          // continuation consuming the
-          // input, which is the
-          // longest and most likely
-          // match
+        } else if (c.seg.isOptional()) {
+          // Попытка сопоставления, игнорируя и не игнорируя сегмент. Сначала
+          // пробуем полное продолжение, потребляя входные данные, что является
+          // самым длинным и наиболее вероятным совпадением
           auto matches0 = matches;
           auto ids0 = ids;
           *matches++ = *it;
           *ids++ = c.seg.id();
-          r = try_match(std::next(it), end, &c, level, matches, ids);
+          r = tryMatch(std::next(it), end, &c, level, matches, ids);
           if (r)
             break;
-          // rewind
+          // "Откат" (или "перемотка назад")
           matches = matches0;
           ids = ids0;
-          // try complete continuation
-          // consuming no segment
+          // Пробуем полное продолжение, не потребляя сегмент
           *matches++ = {};
           *ids++ = c.seg.id();
-          r = try_match(it, end, &c, level, matches, ids);
+          r = tryMatch(it, end, &c, level, matches, ids);
           if (r)
             break;
-          // rewind
+          // "Откат" (или "перемотка назад")
           matches = matches0;
           ids = ids0;
         } else {
-          // check if the next segments
-          // won't send us to a parent
-          // directory
+          // Проверяем, не отправят ли нас следующие сегменты в родительский
+          // каталог (это запрещено, на вход должны идти нормализованные пути)
           auto first = it;
           BOOST_ASSERT(!it->starts_with("."));
 
-          // attempt to match many
-          // segments
+          // Попытка сопоставить множество сегментов
           auto matches0 = matches;
           auto ids0 = ids;
           *matches++ = *it;
           *ids++ = c.seg.id();
-          // if this is a plus seg, we
-          // already consumed the first
-          // segment
-          if (c.seg.is_plus()) {
+          // Если это сегмент с плюсом, мы уже обработали первый сегмент
+          if (c.seg.isPlus()) {
             ++first;
           }
-          // {*} is usually the last
-          // match in a path.
-          // try complete continuation
-          // match for every subrange
-          // from {last, last} to
-          // {first, last}.
-          // We also try {last, last}
-          // first because it is the
-          // longest match.
+          // {*} обычно является последним
+          // совпадением в пути.
+          // Пробуем полное продолжение
+          // сопоставления для каждого подинтервала
+          // от {последний, последний} до
+          // {первый, последний}.
+          // Мы также пробуем {последний, последний}
+          // сначала, потому что это
+          // самое длинное совпадение.
           auto start = end;
           while (start != first) {
-            r = try_match(start, end, &c, level, matches, ids);
+            r = tryMatch(start, end, &c, level, matches, ids);
             if (r) {
               core::string_view prev = *std::prev(start);
               *matches0 = {matches0->data(), prev.data() + prev.size()};
@@ -350,74 +336,71 @@ ResourceNode const *ResourceTree::try_match(
           if (r) {
             break;
           }
-          // start == first
+          // первый == последний
           matches = matches0 + 1;
           ids = ids0 + 1;
-          r = try_match(start, end, &c, level, matches, ids);
+          r = tryMatch(start, end, &c, level, matches, ids);
           if (r) {
-            if (!c.seg.is_plus())
+            if (!c.seg.isPlus())
               *matches0 = {};
             break;
           }
         }
       }
     }
-    // r represent we already found a terminal
-    // node which is a match
+    // r представляет собой уже найденный терминальный узел, который является
+    // совпадением
     if (r)
       return r;
-    // if we couldn't match anything, we go
-    // one level up in the implicit tree
-    // because the path might still have a
-    // "..".
-    if (!match_any)
-      ++level;
+    // FIXME(xin0nix): удалить
+    // // if we couldn't match anything, we go
+    // // one level up in the implicit tree
+    // // because the path might still have a
+    // // "..".
+    // if (!match_any)
+    //   ++level;
     ++it;
   }
 
-  // the path ended below or above an
-  // existing node
+  // Путь закончился ниже или выше существующего узла
   BOOST_ASSERT(level != 0);
 
   if (!cur->resource) {
-    // we consumed all the input and reached
-    // a node with no resource, but it might
-    // still have child optional segments
-    // with resources we can reach without
-    // consuming any input
-    return find_optional_resource(cur, nodes_, matches, ids);
+    // Мы обработали весь входной путь и достигли
+    // узла без ресурса, но у него все еще могут
+    // быть дочерние опциональные сегменты
+    // с ресурсами, которые мы можем достичь, не
+    // потребляя дополнительного входного пути
+    return findOptionalResource(cur, nodes_, matches, ids);
   }
   return cur;
 }
 
-router_base::any_resource const *
-ResourceTree::find_impl(segments_encoded_view path, core::string_view *&matches,
-                        core::string_view *&ids) const {
-  // parse_path is inconsistent for empty paths
+Routerbase::AnyResource const *
+ResourceTree::findImpl(segments_encoded_view path, core::string_view *&matches,
+                       core::string_view *&ids) const {
   if (path.empty())
     path = segments_encoded_view("./");
-
-  // Iterate nodes from the root
   ResourceNode const *p =
-      try_match(path.begin(), path.end(), &nodes_.front(), 0, matches, ids);
+      tryMatch(path.begin(), path.end(), &nodes_.front(), 0, matches, ids);
   if (p)
     return p->resource;
   return nullptr;
 }
 
-router_base::router_base() : impl_(new ResourceTree{}) {}
+Routerbase::Routerbase() : impl_(new ResourceTree{}) {}
 
-router_base::~router_base() { delete reinterpret_cast<ResourceTree *>(impl_); }
+Routerbase::~Routerbase() { delete reinterpret_cast<ResourceTree *>(impl_); }
 
-void router_base::insert_impl(core::string_view s, any_resource const *v) {
-  reinterpret_cast<ResourceTree *>(impl_)->insert_impl(s, v);
+void Routerbase::insertImpl(core::string_view s, AnyResource const *v) {
+  reinterpret_cast<ResourceTree *>(impl_)->insertImpl(s, v);
 }
 
-auto router_base::find_impl(segments_encoded_view path,
-                            core::string_view *&matches,
-                            core::string_view *&ids) const noexcept
-    -> any_resource const * {
-  return reinterpret_cast<ResourceTree *>(impl_)->find_impl(path, matches, ids);
+auto Routerbase::findImpl(segments_encoded_view path,
+                          core::string_view *&matches,
+                          core::string_view *&ids) const noexcept
+    -> AnyResource const * {
+  return reinterpret_cast<ResourceTree *>(impl_)->findImpl(path, matches, ids);
 }
 
 } // namespace detail

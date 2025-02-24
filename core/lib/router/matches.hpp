@@ -20,7 +20,7 @@ namespace boost {
 namespace urls {
 
 // Base route match results
-struct matches_base {
+struct MatchesBase {
   using iterator = core::string_view *;
   using const_iterator = core::string_view const *;
   using size_type = std::size_t;
@@ -30,9 +30,9 @@ struct matches_base {
   using pointer = core::string_view *;
   using const_pointer = core::string_view const *;
 
-  matches_base() = default;
+  MatchesBase() = default;
 
-  virtual ~matches_base() = default;
+  virtual ~MatchesBase() = default;
 
   virtual core::string_view const *matches() const = 0;
 
@@ -64,12 +64,12 @@ struct matches_base {
 };
 
 /// A range type with the match results
-struct matches_storage : matches_base {
+struct MatchesStorage : MatchesBase {
   std::vector<core::string_view> matches_storage_;
   std::vector<core::string_view> ids_storage_;
 
-  matches_storage(std::span<core::string_view> matches,
-                  std::span<core::string_view> ids) {
+  MatchesStorage(std::span<core::string_view> matches,
+                 std::span<core::string_view> ids) {
     BOOST_ASSERT(matches.size() == ids.size());
     resize(matches.size());
     for (std::size_t i = 0; i < matches.size(); ++i) {
@@ -84,7 +84,7 @@ struct matches_storage : matches_base {
 
   virtual core::string_view *ids() override { return ids_storage_.data(); }
 
-  matches_storage() = default;
+  MatchesStorage() = default;
 
   virtual core::string_view const *matches() const override {
     return matches_storage_.data();
@@ -103,7 +103,7 @@ struct matches_storage : matches_base {
 };
 
 /// Default type for storing route match results
-using matches = matches_storage;
+using matches = MatchesStorage;
 
 } // namespace urls
 } // namespace boost
