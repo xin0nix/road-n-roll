@@ -86,29 +86,13 @@ private:
   friend struct SegmentPatternRule;
 };
 
-struct Routerbase {
-  // A type-erased router resource
-  struct AnyResource {
-    virtual ~AnyResource() = default;
-    virtual void const *get() const noexcept = 0;
-  };
-
-protected:
-  Routerbase();
-
-  virtual ~Routerbase();
-
-  void insertImpl(core::string_view s, AnyResource const *v);
-
-  AnyResource const *findImpl(segments_encoded_view path,
-                              core::string_view *&matches,
-                              core::string_view *&names) const noexcept;
-
-private:
-  void *impl_{nullptr};
-};
-
 using ChildIdxVector = std::vector<std::size_t>;
+
+// Ресурс маршрутизатора с удаленным типом
+struct AnyResource {
+  virtual ~AnyResource() = default;
+  virtual void const *get() const noexcept = 0;
+};
 
 // Узел в дереве ресурсов
 // Каждый сегмент в дереве ресурсов может быть связан с:
@@ -120,7 +104,7 @@ struct ResourceNode {
 
   // FIXME(xin0nix): меня смущает сырой указатель
   // Указатель на ресурс
-  Routerbase::AnyResource const *resource{nullptr};
+  AnyResource const *resource{nullptr};
 
   // Полное совпадение для ресурса
   std::string pathPattern;
@@ -160,7 +144,7 @@ struct ResourceTree {
    * @warning Если парсинг пути не удался, ресурс удаляется,
    * и никаких изменений в дереве не производится.
    */
-  void insertImpl(core::string_view path, Routerbase::AnyResource const *v);
+  void insertImpl(core::string_view path, AnyResource const *v);
 
   /**
    * @brief Ищет ресурс в дереве маршрутизации по заданному пути.
@@ -179,9 +163,9 @@ struct ResourceTree {
    * @note Метод модифицирует указатели matches и ids для передачи
    * дополнительной информации о найденном пути.
    */
-  Routerbase::AnyResource const *findImpl(segments_encoded_view path,
-                                          core::string_view *&matches,
-                                          core::string_view *&ids) const;
+  AnyResource const *findImpl(segments_encoded_view path,
+                              core::string_view *&matches,
+                              core::string_view *&ids) const;
 
 protected:
   /**
@@ -251,8 +235,7 @@ protected:
  * Обеспечивает надежную работу в условиях возможных исключений,
  * что критично для стабильности веб-сервера.
  */
-template <class T> class Router : private detail::Routerbase {
-public:
+template <class T> struct Router : detail::ResourceTree {
   /// Конструктор
   Router() = default;
 
@@ -271,10 +254,10 @@ public:
     using U_ = typename std::decay<
         typename std::conditional<std::is_base_of_v<T, U>, U, T>::type>::type;
 
-    struct impl : AnyResource {
+    struct Impl : detail::AnyResource {
       U_ u;
 
-      explicit impl(U &&u_) : u(std::forward<U>(u_)) {}
+      explicit Impl(U &&u_) : u(std::forward<U>(u_)) {}
 
       void const *get() const noexcept override {
         return static_cast<T const *>(&u);
@@ -296,7 +279,7 @@ public:
   T const *find(segments_encoded_view path, MatchesBase &m) const noexcept {
     core::string_view *matches_it = m.matches();
     core::string_view *ids_it = m.ids();
-    AnyResource const *p = findImpl(path, matches_it, ids_it);
+    detail::AnyResource const *p = findImpl(path, matches_it, ids_it);
     if (p) {
       BOOST_ASSERT(matches_it >= m.matches());
       m.resize(static_cast<std::size_t>(matches_it - m.matches()));

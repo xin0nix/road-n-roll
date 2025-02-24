@@ -137,7 +137,7 @@ ResourceNode const *ResourceTree::findOptionalResource(
 }
 
 void ResourceTree::insertImpl(core::string_view non_normalized_path,
-                              Routerbase::AnyResource const *v) {
+                              AnyResource const *v) {
   urls::url u(non_normalized_path);
   core::string_view path = u.normalize_path().encoded_path();
   // Parse dynamic route segments
@@ -212,11 +212,11 @@ ResourceNode const *ResourceTree::tryMatch(
     bool branch = false;
     if (cur->children.size() > 1) {
       int branchesLowerBound = 0;
-      for (auto i : cur->children) {
-        auto &c = nodes_[i];
-        if (c.seg.isLiteral() || !c.seg.hasModifier()) {
+      for (auto child : cur->children) {
+        auto &curNode = nodes_[child];
+        if (curNode.seg.isLiteral() || !curNode.seg.hasModifier()) {
           // Литеральный путь учитывается только если он совпадает
-          branchesLowerBound += c.seg.match(s);
+          branchesLowerBound += curNode.seg.match(s);
         } else {
           // Всё, что не совпадает с одним конкретным путем, уже считается более
           // чем одним путем
@@ -376,9 +376,9 @@ ResourceNode const *ResourceTree::tryMatch(
   return cur;
 }
 
-Routerbase::AnyResource const *
-ResourceTree::findImpl(segments_encoded_view path, core::string_view *&matches,
-                       core::string_view *&ids) const {
+AnyResource const *ResourceTree::findImpl(segments_encoded_view path,
+                                          core::string_view *&matches,
+                                          core::string_view *&ids) const {
   if (path.empty())
     path = segments_encoded_view("./");
   ResourceNode const *p =
@@ -386,21 +386,6 @@ ResourceTree::findImpl(segments_encoded_view path, core::string_view *&matches,
   if (p)
     return p->resource;
   return nullptr;
-}
-
-Routerbase::Routerbase() : impl_(new ResourceTree{}) {}
-
-Routerbase::~Routerbase() { delete reinterpret_cast<ResourceTree *>(impl_); }
-
-void Routerbase::insertImpl(core::string_view s, AnyResource const *v) {
-  reinterpret_cast<ResourceTree *>(impl_)->insertImpl(s, v);
-}
-
-auto Routerbase::findImpl(segments_encoded_view path,
-                          core::string_view *&matches,
-                          core::string_view *&ids) const noexcept
-    -> AnyResource const * {
-  return reinterpret_cast<ResourceTree *>(impl_)->findImpl(path, matches, ids);
 }
 
 } // namespace detail
