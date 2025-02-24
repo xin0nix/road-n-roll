@@ -75,34 +75,43 @@ constexpr auto kPathPatternRule = grammar::tuple_rule(
 auto SegmentPatternRule::parse(char const *&it, char const *end) const noexcept
     -> system::result<value_type> {
   SegmentPattern segmentPattern;
+  // Пытаемся распарсить специальный сегмент вида {id}, {name+} и т.п.
+  // FIXME(xin0nix): использовать grammar::tuple_rule вместо этой фигни
   if (it != end && *it == '{') {
     // replacement field
     auto it0 = it;
     ++it;
-    auto send = grammar::find_if(it, end, grammar::lut_chars('}'));
-    if (send != end) {
-      core::string_view s(it, send);
-      static constexpr auto modifiers_cs = grammar::lut_chars("?*+");
-      static constexpr auto id_rule = grammar::tuple_rule(
-          grammar::optional_rule(arg_id_rule),
-          grammar::optional_rule(grammar::delim_rule(modifiers_cs)));
-      if (s.empty() || grammar::parse(s, id_rule)) {
-        it = send + 1;
-
-        segmentPattern.str_ = core::string_view(it0, send + 1);
+    auto sEnd = grammar::find_if(it, end, grammar::lut_chars('}'));
+    if (sEnd != end) {
+      core::string_view seg(it, sEnd);
+      static constexpr auto modifiersSet = grammar::lut_chars("?*+");
+      // У сегмента  может быть id, например "/{name}" или "/{path+}"
+      static constexpr auto idRule = grammar::tuple_rule(
+          identifier_rule,
+          grammar::optional_rule(grammar::delim_rule(modifiersSet)));
+      if (auto res = grammar::parse(seg, idRule); res) {
+        auto &&[id, modifier] = *res;
+        it = sEnd + 1;
+        segmentPattern.str_ = id;
         segmentPattern.isLiteral_ = false;
-        if (s.ends_with('?'))
-          segmentPattern.modifier_ = SegmentPattern::modifier::optional;
-        else if (s.ends_with('*'))
-          segmentPattern.modifier_ = SegmentPattern::modifier::star;
-        else if (s.ends_with('+'))
-          segmentPattern.modifier_ = SegmentPattern::modifier::plus;
+        // Модификатор это спец символ в конце сегмента
+        if (modifier) {
+          switch (modifier.value().front()) {
+          case '?':
+            segmentPattern.modifier_ = SegmentPattern::modifier::optional;
+          case '*':
+            segmentPattern.modifier_ = SegmentPattern::modifier::star;
+          case '+':
+            segmentPattern.modifier_ = SegmentPattern::modifier::plus;
+          }
+        }
         return segmentPattern;
       }
     }
+    // Откат
     it = it0;
   }
-  // literal segment
+  // Литеральный сегмент
   auto rv = grammar::parse(it, end, urls::detail::segment_rule);
   BOOST_ASSERT(rv);
   rv->decode({}, urls::string_token::assign_to(segmentPattern.str_));
