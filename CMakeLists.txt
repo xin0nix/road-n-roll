@@ -6,19 +6,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 set(CMAKE_CXX_SCAN_FOR_INCLUDES OFF)
-
 # Specify the Boost libraries you need, including json
 set(BOOST_INCLUDE_LIBRARIES asio beast json uuid url)
 set(BOOST_ENABLE_CMAKE ON)
 
 include(FetchContent)
 
-# Fetch Boost (including Boost.JSON)
+
 FetchContent_Declare(
   Boost
-  GIT_REPOSITORY https://github.com/boostorg/boost.git
-  GIT_TAG boost-1.85.0
-  GIT_SHALLOW TRUE
+  URL https://github.com/boostorg/boost/releases/download/boost-1.85.0/boost-1.85.0-cmake.tar.gz
 )
 FetchContent_MakeAvailable(Boost)
 
