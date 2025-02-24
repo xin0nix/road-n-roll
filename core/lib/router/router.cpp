@@ -110,15 +110,16 @@ auto SegmentPatternRule::parse(char const *&it, char const *end) const noexcept
   return segmentPattern;
 }
 
-ResourceNode const *ResourceTree::findOptionalResource(
-    const ResourceNode *root, std::vector<ResourceNode> const &nodes,
-    core::string_view *&matches, core::string_view *&ids) {
+ResourceNode const *
+ResourceTree::findOptionalResource(const ResourceNode *root,
+                                   core::string_view *&matches,
+                                   core::string_view *&ids) const {
   BOOST_ASSERT(root);
   if (root->resource)
     return root;
   BOOST_ASSERT(!root->children.empty());
   for (auto childIdx : root->children) {
-    auto &cur = nodes[childIdx];
+    const auto &cur = nodes_[childIdx];
     if (!cur.seg.isOptional() && !cur.seg.isStar())
       continue;
     // Child nodes are also
@@ -127,7 +128,7 @@ ResourceNode const *ResourceTree::findOptionalResource(
     auto ids0 = ids;
     *matches++ = {};
     *ids++ = cur.seg.id();
-    auto node = findOptionalResource(&cur, nodes, matches, ids);
+    auto node = findOptionalResource(&cur, matches, ids);
     if (node)
       return node;
     matches = matches0;
@@ -203,53 +204,46 @@ ResourceNode const *ResourceTree::tryMatch(
     pct_string_view s = *it;
     BOOST_ASSERT(!s.starts_with("."));
 
-    // Вычисляем нижнюю границу возможного количества ветвей, чтобы определить,
-    // нужно ли выполнять ветвление. Мы выполняем ветвление, когда на этом
-    // уровне может быть более одного совпадающего дочернего узла. Если это так,
-    // нам потенциально нужно выполнить ветвление, чтобы найти, какой путь ведет
-    // к действительному ресурсу. В противном случае мы можем просто обработать
-    // узел и входные данные без каких-либо рекурсивных вызовов функции.
-    bool branch = false;
-    if (cur->children.size() > 1) {
-      int branchesLowerBound = 0;
-      for (auto child : cur->children) {
-        auto &curNode = nodes_[child];
-        if (curNode.seg.isLiteral() || !curNode.seg.hasModifier()) {
-          // Литеральный путь учитывается только если он совпадает
-          branchesLowerBound += curNode.seg.match(s);
-        } else {
-          // Всё, что не совпадает с одним конкретным путем, уже считается более
-          // чем одним путем
-          branchesLowerBound = 2;
-        }
-        if (branchesLowerBound > 1) {
-          // Уже знаем, что нам нужно выполнить ветвление
-          branch = true;
-          break;
-        }
+    // Определяем, нужно ли выполнять ветвление.
+    // Ветвление необходимо, если есть более одного потенциального совпадения
+    // или если есть нелитеральный сегмент с модификатором.
+    bool needBranching = false;
+    size_t matchCount = 0UL;
+    // FIXME(xin0nix): нужна ли здесь проверка на cur->children.size() > 1 ??
+    for (auto childIdx : cur->children) {
+      auto &child = nodes_[childIdx];
+      if (child.seg.isLiteral() || !child.seg.hasModifier()) {
+        matchCount += static_cast<size_t>(child.seg.match(s));
+      } else {
+        // Нелитеральный сегмент с модификатором всегда требует ветвления
+        needBranching = true;
+        break;
       }
+    }
+    if (matchCount > 1) {
+      needBranching = true;
     }
 
     // Попытка сопоставить каждый дочерний узел
     ResourceNode const *r = nullptr;
-    bool match_any = false;
+    bool matchesAny = false;
     for (auto i : cur->children) {
       auto &c = nodes_[i];
       if (c.seg.match(s)) {
         if (c.seg.isLiteral()) {
           // Просто продолжаем со следующего сегмента
-          if (branch) {
+          if (needBranching) {
             r = tryMatch(std::next(it), end, &c, level, matches, ids);
             if (r)
               break;
           } else {
             cur = &c;
-            match_any = true;
+            matchesAny = true;
             break;
           }
         } else if (!c.seg.hasModifier()) {
           // Просто продолжаем со следующего сегмента
-          if (branch) {
+          if (needBranching) {
             auto matches0 = matches;
             auto ids0 = ids;
             *matches++ = *it;
@@ -271,7 +265,7 @@ ResourceNode const *ResourceTree::tryMatch(
             *matches++ = *it;
             *ids++ = c.seg.id();
             cur = &c;
-            match_any = true;
+            matchesAny = true;
             break;
           }
         } else if (c.seg.isOptional()) {
@@ -363,7 +357,7 @@ ResourceNode const *ResourceTree::tryMatch(
   }
 
   // Путь закончился ниже или выше существующего узла
-  BOOST_ASSERT(level != 0);
+  BOOST_ASSERT(level == 0);
 
   if (!cur->resource) {
     // Мы обработали весь входной путь и достигли
@@ -371,7 +365,7 @@ ResourceNode const *ResourceTree::tryMatch(
     // быть дочерние опциональные сегменты
     // с ресурсами, которые мы можем достичь, не
     // потребляя дополнительного входного пути
-    return findOptionalResource(cur, nodes_, matches, ids);
+    return findOptionalResource(cur, matches, ids);
   }
   return cur;
 }

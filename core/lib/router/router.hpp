@@ -208,10 +208,9 @@ protected:
    * глубину. Если ресурс не найден, метод восстанавливает предыдущие значения
    * matches и ids.
    */
-  static ResourceNode const *
-  findOptionalResource(const ResourceNode *root,
-                       std::vector<ResourceNode> const &nodes,
-                       core::string_view *&matches, core::string_view *&ids);
+  ResourceNode const *findOptionalResource(const ResourceNode *root,
+                                           core::string_view *&matches,
+                                           core::string_view *&ids) const;
 
   // Pool of nodes in the resource tree
   std::vector<ResourceNode> nodes_;
