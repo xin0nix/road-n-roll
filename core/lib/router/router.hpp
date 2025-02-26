@@ -12,81 +12,54 @@
 #include <boost/url/decode_view.hpp>
 #include <boost/url/detail/config.hpp>
 #include <boost/url/detail/except.hpp>
-#include <boost/url/grammar/unsigned_rule.hpp>
+#include <boost/url/grammar.hpp>
 #include <boost/url/parse_path.hpp>
 
 #include "matches.hpp"
 
 namespace boost {
 namespace urls {
-
-namespace detail {
+namespace router {
 
 // Паттерн сегмента пути к ресурсу
 struct SegmentPattern {
   SegmentPattern() = default;
-
   bool match(pct_string_view seg) const;
-
   core::string_view string() const { return str_; }
-
   core::string_view id() const;
-
   bool empty() const { return str_.empty(); }
-
   bool isLiteral() const { return isLiteral_; }
-
-  bool hasModifier() const {
-    return !isLiteral() && modifier_ != modifier::none;
-  }
-
-  bool isOptional() const { return modifier_ == modifier::optional; }
-
-  bool isStar() const { return modifier_ == modifier::star; }
-
-  bool isPlus() const { return modifier_ == modifier::plus; }
-
   friend bool operator==(SegmentPattern const &a, SegmentPattern const &b) {
-    if (a.isLiteral_ != b.isLiteral_)
-      return false;
-    if (a.isLiteral_)
+    if (a.isLiteral_ and b.isLiteral_)
       return a.str_ == b.str_;
-    return a.modifier_ == b.modifier_;
+    return false;
   }
 
-  // Сегменты имеют следующий приоритет:
-  // - строковый литерал
-  // - уникальный
-  // - опциональный
-  // - плюс
-  // - звездочка
   friend bool operator<(SegmentPattern const &a, SegmentPattern const &b) {
-    if (b.isLiteral())
-      return false;
-    if (a.isLiteral())
-      return !b.isLiteral();
-    return a.modifier_ < b.modifier_;
+    if (a.isLiteral_ and b.isLiteral_)
+      return a.str_ < b.str_;
+    return false;
   }
-
-private:
-  enum class modifier : unsigned char {
-    none,
-    // {id?}
-    optional,
-    // {id*}
-    star,
-    // {id+}
-    plus
-  };
 
   std::string str_;
   bool isLiteral_ = true;
-  modifier modifier_ = modifier::none;
-
-  friend struct SegmentPatternRule;
 };
 
-using ChildIdxVector = std::vector<std::size_t>;
+struct SegmentPatternRule {
+  using value_type = SegmentPattern;
+
+  system::result<value_type> parse(char const *&it,
+                                   char const *end) const noexcept;
+};
+
+constexpr auto kSegmentPatternRule = SegmentPatternRule{};
+
+constexpr auto kPathPatternRule = grammar::tuple_rule(
+    grammar::squelch(grammar::optional_rule(grammar::delim_rule('/'))),
+    grammar::range_rule(
+        kSegmentPatternRule,
+        grammar::tuple_rule(grammar::squelch(grammar::delim_rule('/')),
+                            kSegmentPatternRule)));
 
 // Ресурс маршрутизатора с удаленным типом
 struct AnyResource {
@@ -94,26 +67,19 @@ struct AnyResource {
   virtual void const *get() const noexcept = 0;
 };
 
-// Узел в дереве ресурсов
-// Каждый сегмент в дереве ресурсов может быть связан с:
+/**
+ * @brief Узел в дереве ресурсов
+ */
 struct ResourceNode {
   static constexpr std::size_t npos{std::size_t(-1)};
-
-  // Литеральный сегмент или поле замены
   SegmentPattern seg{};
 
   // FIXME(xin0nix): меня смущает сырой указатель
   // Указатель на ресурс
   AnyResource const *resource{nullptr};
-
-  // Полное совпадение для ресурса
   std::string pathPattern;
-
-  // Индекс родительского узла в реализации пула узлов
   std::size_t parent{npos};
-
-  // Индексы дочерних узлов в пуле узлов
-  ChildIdxVector children;
+  std::vector<std::size_t> children;
 };
 
 struct ResourceTree {
@@ -130,11 +96,6 @@ struct ResourceTree {
   /**
    * @brief Вставляет ресурс в дерево маршрутизации.
    *
-   * @details Этот метод нормализует путь, разбирает его на сегменты,
-   * и вставляет ресурс в соответствующий узел дерева. Если необходимые
-   * узлы отсутствуют, они создаются динамически. Метод поддерживает
-   * как статические, так и динамические сегменты пути.
-   *
    * @param path Исходный, ненормализованный путь
    * @param v Указатель на ресурс для вставки
    *
@@ -148,11 +109,6 @@ struct ResourceTree {
 
   /**
    * @brief Ищет ресурс в дереве маршрутизации по заданному пути.
-   *
-   * @details Метод выполняет поиск ресурса, соответствующего указанному пути.
-   * Он обрабатывает пустые пути, используя "./", и рекурсивно проходит по
-   * дереву для поиска совпадения. При нахождении совпадения, метод также
-   * заполняет информацию о совпавших сегментах и идентификаторах.
    *
    * @param path Закодированные сегменты пути для поиска
    * @param matches Указатель на массив для хранения совпавших сегментов
@@ -171,10 +127,6 @@ protected:
   /**
    * @brief Рекурсивно ищет соответствие пути в дереве ресурсов.
    *
-   * @details Метод проходит по сегментам пути, сопоставляя их с узлами дерева.
-   * Поддерживает литералы, опциональные и множественные сегменты. Выполняет
-   * ветвление при необходимости для поиска наилучшего соответствия.
-   *
    * @param it Итератор начала текущего сегмента пути
    * @param end Итератор конца пути
    * @param cur Текущий узел в дереве
@@ -192,40 +144,13 @@ protected:
                                core::string_view *&matches,
                                core::string_view *&ids) const;
 
-  /**
-   * @brief Поиск опционального ресурса в дереве ресурсов.
-
-   * @param root Указатель на корневой узел, с которого начинается поиск
-   * @param ns Вектор узлов ресурсов, представляющий дерево
-   * @param matches Указатель на массив для сохранения совпавших сегментов
-   * @param ids Указатель на массив для сохранения идентификаторов сегментов
-   * @return Указатель на найденный опциональный ресурс или nullptr
-   *
-   * @details Метод рекурсивно обходит дерево ресурсов, начиная с заданного
-   * корневого узла, в поисках опционального ресурса. Он проверяет каждый
-   * дочерний узел на наличие опционального сегмента или сегмента-звездочки. При
-   * нахождении такого узла, метод обновляет matches и ids, и продолжает поиск в
-   * глубину. Если ресурс не найден, метод восстанавливает предыдущие значения
-   * matches и ids.
-   */
-  ResourceNode const *findOptionalResource(const ResourceNode *root,
-                                           core::string_view *&matches,
-                                           core::string_view *&ids) const;
-
-  // Pool of nodes in the resource tree
+  // Пул узлов в дереве ресурсов. Для доступа к ним используется индекс.
   std::vector<ResourceNode> nodes_;
 };
 
-} // namespace detail
+} // namespace router
 
 /** @brief Маршрутизатор URL для эффективной обработки веб-запросов.
- *
- * Этот класс предоставляет механизм для сопоставления входящих URL-запросов
- * с соответствующими обработчиками. Это критически важно для создания
- * масштабируемых веб-приложений, так как позволяет:
- * 1. Организовать логику обработки запросов в структурированном виде.
- * 2. Эффективно направлять запросы к нужным обработчикам.
- * 3. Поддерживать как статические, так и динамические URL-пути.
  *
  * @tparam T Тип обработчика (например, std::function<void(Request&,
  * Response&)>). Позволяет гибко определять тип обработчиков для разных нужд.
@@ -234,15 +159,11 @@ protected:
  * Обеспечивает надежную работу в условиях возможных исключений,
  * что критично для стабильности веб-сервера.
  */
-template <class T> struct Router : detail::ResourceTree {
+template <class T> struct Router : router::ResourceTree {
   /// Конструктор
   Router() = default;
 
   /** @brief Добавляет новый маршрут в систему маршрутизации.
-   *
-   * Этот метод позволяет связать URL-шаблон с конкретным обработчиком.
-   * Поддерживает как статические, так и динамические сегменты в URL,
-   * что дает гибкость в определении маршрутов.
    *
    * @param pattern URL-шаблон, может содержать параметры в фигурных скобках
    * @param v Обработчик, который будет вызван при совпадении URL
@@ -252,24 +173,17 @@ template <class T> struct Router : detail::ResourceTree {
                         std::is_base_of_v<T, U>);
     using U_ = typename std::decay<
         typename std::conditional<std::is_base_of_v<T, U>, U, T>::type>::type;
-
-    struct Impl : detail::AnyResource {
+    struct Impl : router::AnyResource {
       U_ u;
-
       explicit Impl(U &&u_) : u(std::forward<U>(u_)) {}
-
       void const *get() const noexcept override {
         return static_cast<T const *>(&u);
       }
     };
+    insertImpl(pattern, new Impl(v));
   }
 
   /** @brief Находит подходящий обработчик для заданного URL-пути.
-   *
-   * Этот метод является ключевым для процесса маршрутизации. Он принимает
-   * входящий URL-путь и возвращает соответствующий обработчик, если такой
-   * найден. Также заполняет информацию о совпавших сегментах пути, что может
-   * быть полезно для извлечения параметров из URL.
    *
    * @param path Входящий URL-путь для обработки
    * @param m Объект для хранения информации о совпадениях
@@ -278,7 +192,7 @@ template <class T> struct Router : detail::ResourceTree {
   T const *find(segments_encoded_view path, MatchesBase &m) const noexcept {
     core::string_view *matches_it = m.matches();
     core::string_view *ids_it = m.ids();
-    detail::AnyResource const *p = findImpl(path, matches_it, ids_it);
+    router::AnyResource const *p = findImpl(path, matches_it, ids_it);
     if (p) {
       BOOST_ASSERT(matches_it >= m.matches());
       m.resize(static_cast<std::size_t>(matches_it - m.matches()));
