@@ -17,6 +17,8 @@
 
 #include "matches.hpp"
 
+#include <deque>
+
 namespace boost {
 namespace urls {
 namespace router {
@@ -25,8 +27,8 @@ namespace router {
 struct SegmentPattern {
   SegmentPattern() = default;
   bool match(pct_string_view seg) const;
-  core::string_view string() const { return str_; }
-  core::string_view id() const;
+  std::string_view string() const { return str_; }
+  std::string_view id() const;
   bool empty() const { return str_.empty(); }
   bool isLiteral() const { return isLiteral_; }
   friend bool operator==(SegmentPattern const &a, SegmentPattern const &b) {
@@ -71,15 +73,13 @@ struct AnyResource {
  * @brief Узел в дереве ресурсов
  */
 struct ResourceNode {
-  static constexpr std::size_t npos{std::size_t(-1)};
   SegmentPattern seg{};
 
   // FIXME(xin0nix): меня смущает сырой указатель
-  // Указатель на ресурс
   AnyResource const *resource{nullptr};
   std::string pathPattern;
-  std::size_t parent{npos};
-  std::vector<std::size_t> children;
+  std::optional<std::reference_wrapper<ResourceNode>> parent;
+  std::vector<std::reference_wrapper<ResourceNode>> children;
 };
 
 struct ResourceTree {
@@ -105,7 +105,7 @@ struct ResourceTree {
    * @warning Если парсинг пути не удался, ресурс удаляется,
    * и никаких изменений в дереве не производится.
    */
-  void insertImpl(core::string_view path, AnyResource const *v);
+  void insertImpl(std::string_view path, AnyResource const *v);
 
   /**
    * @brief Ищет ресурс в дереве маршрутизации по заданному пути.
@@ -120,8 +120,8 @@ struct ResourceTree {
    * дополнительной информации о найденном пути.
    */
   AnyResource const *findImpl(segments_encoded_view path,
-                              core::string_view *&matches,
-                              core::string_view *&ids) const;
+                              std::string_view *&matches,
+                              std::string_view *&ids) const;
 
 protected:
   /**
@@ -141,11 +141,11 @@ protected:
   ResourceNode const *tryMatch(segments_encoded_view::const_iterator it,
                                segments_encoded_view::const_iterator end,
                                ResourceNode const *root, int level,
-                               core::string_view *&matches,
-                               core::string_view *&ids) const;
+                               std::string_view *&matches,
+                               std::string_view *&ids) const;
 
   // Пул узлов в дереве ресурсов. Для доступа к ним используется индекс.
-  std::vector<ResourceNode> nodes_;
+  std::deque<ResourceNode> nodes_;
 };
 
 } // namespace router
@@ -168,7 +168,7 @@ template <class T> struct Router : router::ResourceTree {
    * @param pattern URL-шаблон, может содержать параметры в фигурных скобках
    * @param v Обработчик, который будет вызван при совпадении URL
    */
-  template <class U> void insert(core::string_view pattern, U &&v) {
+  template <class U> void insert(std::string_view pattern, U &&v) {
     BOOST_STATIC_ASSERT(std::is_same_v<T, U> || std::is_convertible_v<U, T> ||
                         std::is_base_of_v<T, U>);
     using U_ = typename std::decay<
@@ -190,8 +190,8 @@ template <class T> struct Router : router::ResourceTree {
    * @return Указатель на обработчик или nullptr, если совпадений не найдено
    */
   T const *find(segments_encoded_view path, MatchesBase &m) const noexcept {
-    core::string_view *matches_it = m.matches();
-    core::string_view *ids_it = m.ids();
+    std::string_view *matches_it = m.matches();
+    std::string_view *ids_it = m.ids();
     router::AnyResource const *p = findImpl(path, matches_it, ids_it);
     if (p) {
       BOOST_ASSERT(matches_it >= m.matches());

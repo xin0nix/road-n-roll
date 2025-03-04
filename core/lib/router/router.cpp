@@ -23,6 +23,8 @@
 #include <boost/url/rfc/detail/path_rules.hpp>
 #include <boost/url/url.hpp>
 
+#include <algorithm>
+#include <ranges>
 #include <vector>
 
 namespace boost {
@@ -37,7 +39,7 @@ bool SegmentPattern::match(pct_string_view seg) const {
   return true;
 }
 
-core::string_view SegmentPattern::id() const {
+std::string_view SegmentPattern::id() const {
   BOOST_ASSERT(!isLiteral());
   return {str_};
 }
@@ -50,7 +52,7 @@ auto SegmentPatternRule::parse(char const *&it, char const *end) const noexcept
       grammar::squelch(grammar::delim_rule('{')), detail::identifier_rule,
       grammar::squelch(grammar::delim_rule('}')));
 
-  core::string_view seg(it, end);
+  std::string_view seg(it, end);
   if (auto res = grammar::parse(seg, idRule); res) {
     segmentPattern.str_ = *res;
     segmentPattern.isLiteral_ = false;
@@ -65,69 +67,48 @@ auto SegmentPatternRule::parse(char const *&it, char const *end) const noexcept
   return segmentPattern;
 }
 
-void ResourceTree::insertImpl(core::string_view non_normalized_path,
-                              AnyResource const *v) {
-  urls::url u(non_normalized_path);
-  core::string_view path = u.normalize_path().encoded_path();
-  // Parse dynamic route segments
-  if (path.starts_with("/"))
-    path.remove_prefix(1);
-  auto segsr = grammar::parse(path, kPathPatternRule);
+void ResourceTree::insertImpl(std::string_view path, AnyResource const *v) {
+  urls::url u(path);
+  std::string_view normalizedPath = u.normalize_path().encoded_path();
+  if (normalizedPath.starts_with("/"))
+    normalizedPath.remove_prefix(1);
+  auto segsr = grammar::parse(normalizedPath, kPathPatternRule);
   if (!segsr) {
     delete v;
-    std::ignore = segsr.value();
+    throw std::invalid_argument("Не получилось распарсить путь");
   }
-  auto segs = *segsr;
-  auto it = segs.begin();
-  auto end = segs.end();
+  auto segments = std::ranges::subrange(segsr->begin(), segsr->end());
 
-  // Iterate existing nodes
-  ResourceNode *cur = &nodes_.front();
-  int level = 0;
-  while (it != end) {
-    core::string_view seg = (*it).string();
-    BOOST_ASSERT(!seg.starts_with("."));
-    // look for child
-    auto cit = std::find_if(
-        cur->children.begin(), cur->children.end(),
-        [this, &it](std::size_t ci) -> bool { return nodes_[ci].seg == *it; });
-    if (cit != cur->children.end()) {
-      // move to existing child
-      cur = &nodes_[*cit];
-    } else {
-      // create child if it doesn't exist
-      ResourceNode child;
-      child.seg = *it;
-      std::size_t cur_id = cur - nodes_.data();
-      child.parent = cur_id;
-      nodes_.push_back(std::move(child));
-      nodes_[cur_id].children.push_back(nodes_.size() - 1);
-      if (nodes_[cur_id].children.size() > 1) {
-        // FIXME(xin0nix): std::sort?
-        // keep nodes sorted
-        auto &cs = nodes_[cur_id].children;
-        std::size_t n = cs.size() - 1;
-        while (n) {
-          if (nodes_[cs.begin()[n]].seg < nodes_[cs.begin()[n - 1]].seg)
-            std::swap(cs.begin()[n], cs.begin()[n - 1]);
-          else
-            break;
-          --n;
-        }
-      }
-      cur = &nodes_.back();
+  // Спускаемся по дереву ресурсов с корня, если нужно вставляем новые узлы
+  ResourceNode &cur = nodes_.front();
+  for (auto &&seg : segments) {
+    // Проверим дочерний узел
+    auto chPos = std::ranges::find_if(cur.children, [this, &seg](auto &&chIdx) {
+      return chIdx.get().seg == seg;
+    });
+    if (chPos != cur.children.end()) {
+      // Перемещаемся по вертикали, на дочерний узел
+      cur = *chPos;
+      continue;
     }
-    ++it;
+    // Нужно создать новый узел для соотв. сегмента
+    auto &&child = nodes_.emplace_back();
+    child.seg = seg;
+    child.parent = cur;
+    cur.children.push_back(std::ref(child));
+    cur = child;
   }
-  BOOST_ASSERT(level != 0);
-  cur->resource = v;
-  cur->pathPattern = path;
+  if (cur.resource) {
+    delete cur.resource;
+  }
+  cur.resource = v;
+  cur.pathPattern = normalizedPath;
 }
 
 ResourceNode const *ResourceTree::tryMatch(
     segments_encoded_view::const_iterator it,
     segments_encoded_view::const_iterator end, ResourceNode const *cur,
-    int level, core::string_view *&matches, core::string_view *&ids) const {
+    int level, std::string_view *&matches, std::string_view *&ids) const {
   while (it != end) {
     pct_string_view s = *it;
     BOOST_ASSERT(!s.starts_with("."));
@@ -138,9 +119,8 @@ ResourceNode const *ResourceTree::tryMatch(
     bool needBranching = false;
     size_t matchCount = 0UL;
     // FIXME(xin0nix): нужна ли здесь проверка на cur->children.size() > 1 ??
-    for (auto childIdx : cur->children) {
-      auto &child = nodes_[childIdx];
-      matchCount += static_cast<size_t>(child.seg.match(s));
+    for (auto child : cur->children) {
+      matchCount += static_cast<size_t>(child.get().seg.match(s));
     }
     if (matchCount > 1) {
       needBranching = true;
@@ -149,8 +129,8 @@ ResourceNode const *ResourceTree::tryMatch(
     // Попытка сопоставить каждый дочерний узел
     ResourceNode const *r = nullptr;
     bool matchesAny = false;
-    for (auto i : cur->children) {
-      auto &c = nodes_[i];
+    for (auto &cc : cur->children) {
+      auto &&c = cc.get();
       if (c.seg.match(s)) {
         if (c.seg.isLiteral()) {
           // Просто продолжаем со следующего сегмента
@@ -204,8 +184,8 @@ ResourceNode const *ResourceTree::tryMatch(
 }
 
 AnyResource const *ResourceTree::findImpl(segments_encoded_view path,
-                                          core::string_view *&matches,
-                                          core::string_view *&ids) const {
+                                          std::string_view *&matches,
+                                          std::string_view *&ids) const {
   if (path.empty())
     path = segments_encoded_view("./");
   ResourceNode const *p =

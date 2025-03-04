@@ -24,7 +24,7 @@ auto MatchesBase::operator[](size_type pos) const -> const_reference {
   return matches()[pos];
 }
 
-auto MatchesBase::at(core::string_view id) const -> const_reference {
+auto MatchesBase::at(std::string_view id) const -> const_reference {
   for (std::size_t i = 0; i < size(); ++i) {
     if (ids()[i] == id)
       return matches()[i];
@@ -32,11 +32,11 @@ auto MatchesBase::at(core::string_view id) const -> const_reference {
   boost::throw_exception(std::out_of_range(""));
 }
 
-auto MatchesBase::operator[](core::string_view id) const -> const_reference {
+auto MatchesBase::operator[](std::string_view id) const -> const_reference {
   return at(id);
 }
 
-auto MatchesBase::find(core::string_view id) const -> const_iterator {
+auto MatchesBase::find(std::string_view id) const -> const_iterator {
   for (std::size_t i = 0; i < size(); ++i) {
     if (ids()[i] == id)
       return matches() + i;
