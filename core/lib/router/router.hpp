@@ -18,6 +18,7 @@
 #include "matches.hpp"
 
 #include <deque>
+#include <stdexcept>
 
 namespace boost {
 namespace urls {
@@ -77,9 +78,8 @@ struct ResourceNode {
 
   // FIXME(xin0nix): меня смущает сырой указатель
   AnyResource const *resource{nullptr};
-  std::string pathPattern;
-  std::optional<std::reference_wrapper<ResourceNode>> parent;
-  std::vector<std::reference_wrapper<ResourceNode>> children;
+  std::size_t parent{0UL};
+  std::vector<std::size_t> children;
 };
 
 struct ResourceTree {
@@ -148,8 +148,6 @@ protected:
   std::deque<ResourceNode> nodes_;
 };
 
-} // namespace router
-
 /** @brief Маршрутизатор URL для эффективной обработки веб-запросов.
  *
  * @tparam T Тип обработчика (например, std::function<void(Request&,
@@ -176,9 +174,7 @@ template <class T> struct Router : router::ResourceTree {
     struct Impl : router::AnyResource {
       U_ u;
       explicit Impl(U &&u_) : u(std::forward<U>(u_)) {}
-      void const *get() const noexcept override {
-        return static_cast<T const *>(&u);
-      }
+      void const *get() const noexcept override { return &u; }
     };
     insertImpl(pattern, new Impl(v));
   }
@@ -192,7 +188,7 @@ template <class T> struct Router : router::ResourceTree {
   T const *find(segments_encoded_view path, MatchesBase &m) const noexcept {
     std::string_view *matches_it = m.matches();
     std::string_view *ids_it = m.ids();
-    router::AnyResource const *p = findImpl(path, matches_it, ids_it);
+    AnyResource const *p = findImpl(path, matches_it, ids_it);
     if (p) {
       BOOST_ASSERT(matches_it >= m.matches());
       m.resize(static_cast<std::size_t>(matches_it - m.matches()));
@@ -201,7 +197,20 @@ template <class T> struct Router : router::ResourceTree {
     m.resize(0);
     return nullptr;
   }
+
+  size_t size() const { return nodes_.size(); }
+
+  const ResourceNode &nodeAt(size_t index) const { return nodes_.at(index); }
+
+  const T &valueAt(size_t index) const {
+    auto &&node = nodeAt(index);
+    if (!node.resource) {
+      throw std::invalid_argument("index");
+    }
+    return *reinterpret_cast<const T *>(node.resource->get());
+  }
 };
 
+} // namespace router
 } // namespace urls
 } // namespace boost

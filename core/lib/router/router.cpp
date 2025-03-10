@@ -24,6 +24,7 @@
 #include <boost/url/url.hpp>
 
 #include <algorithm>
+#include <iostream>
 #include <ranges>
 #include <vector>
 
@@ -46,63 +47,63 @@ std::string_view SegmentPattern::id() const {
 
 auto SegmentPatternRule::parse(char const *&it, char const *end) const noexcept
     -> system::result<value_type> {
-  SegmentPattern segmentPattern;
   // Поле замены, например "/{name}", где name это идентификатор
   static constexpr auto idRule = grammar::tuple_rule(
       grammar::squelch(grammar::delim_rule('{')), detail::identifier_rule,
       grammar::squelch(grammar::delim_rule('}')));
 
-  std::string_view seg(it, end);
-  if (auto res = grammar::parse(seg, idRule); res) {
+  BOOST_ASSERT(*it != '/');
+  SegmentPattern segmentPattern;
+  auto next = std::find_if(it, end, [](char c) { return c == '/'; });
+
+  std::string_view segment(it, next);
+
+  if (auto res = grammar::parse(segment, idRule); res) {
     segmentPattern.str_ = *res;
     segmentPattern.isLiteral_ = false;
-    return segmentPattern;
+  } else {
+    // Литеральный сегмент
+    auto rv = grammar::parse(segment, urls::detail::segment_rule);
+    BOOST_ASSERT(rv);
+    rv->decode({}, urls::string_token::assign_to(segmentPattern.str_));
+    segmentPattern.isLiteral_ = true;
   }
 
-  // Литеральный сегмент
-  auto rv = grammar::parse(it, end, urls::detail::segment_rule);
-  BOOST_ASSERT(rv);
-  rv->decode({}, urls::string_token::assign_to(segmentPattern.str_));
-  segmentPattern.isLiteral_ = true;
+  it = next;
   return segmentPattern;
 }
 
 void ResourceTree::insertImpl(std::string_view path, AnyResource const *v) {
-  urls::url u(path);
-  std::string_view normalizedPath = u.normalize_path().encoded_path();
-  if (normalizedPath.starts_with("/"))
-    normalizedPath.remove_prefix(1);
-  auto segsr = grammar::parse(normalizedPath, kPathPatternRule);
-  if (!segsr) {
-    delete v;
-    throw std::invalid_argument("Не получилось распарсить путь");
-  }
+  auto segsr = grammar::parse(path, kPathPatternRule);
+  BOOST_ASSERT(segsr);
   auto segments = std::ranges::subrange(segsr->begin(), segsr->end());
-
   // Спускаемся по дереву ресурсов с корня, если нужно вставляем новые узлы
-  ResourceNode &cur = nodes_.front();
+  size_t curIdx = 0UL;
+  auto getNode = [this](size_t idx) -> auto & { return nodes_.at(idx); };
   for (auto &&seg : segments) {
     // Проверим дочерний узел
+    auto &cur = getNode(curIdx);
     auto chPos = std::ranges::find_if(cur.children, [this, &seg](auto &&chIdx) {
-      return chIdx.get().seg == seg;
+      return nodes_.at(chIdx).seg == seg;
     });
     if (chPos != cur.children.end()) {
       // Перемещаемся по вертикали, на дочерний узел
-      cur = *chPos;
+      curIdx = *chPos;
       continue;
     }
     // Нужно создать новый узел для соотв. сегмента
+    auto chIdx = nodes_.size();
     auto &&child = nodes_.emplace_back();
     child.seg = seg;
-    child.parent = cur;
-    cur.children.push_back(std::ref(child));
-    cur = child;
+    child.parent = curIdx;
+    cur.children.push_back(chIdx);
+    curIdx = chIdx;
   }
+  auto &cur = getNode(curIdx);
   if (cur.resource) {
     delete cur.resource;
   }
   cur.resource = v;
-  cur.pathPattern = normalizedPath;
 }
 
 ResourceNode const *ResourceTree::tryMatch(
@@ -119,8 +120,9 @@ ResourceNode const *ResourceTree::tryMatch(
     bool needBranching = false;
     size_t matchCount = 0UL;
     // FIXME(xin0nix): нужна ли здесь проверка на cur->children.size() > 1 ??
+    auto getNode = [this](size_t idx) -> auto & { return nodes_.at(idx); };
     for (auto child : cur->children) {
-      matchCount += static_cast<size_t>(child.get().seg.match(s));
+      matchCount += static_cast<size_t>(getNode(child).seg.match(s));
     }
     if (matchCount > 1) {
       needBranching = true;
@@ -129,8 +131,8 @@ ResourceNode const *ResourceTree::tryMatch(
     // Попытка сопоставить каждый дочерний узел
     ResourceNode const *r = nullptr;
     bool matchesAny = false;
-    for (auto &cc : cur->children) {
-      auto &&c = cc.get();
+    for (auto child : cur->children) {
+      auto &&c = getNode(child);
       if (c.seg.match(s)) {
         if (c.seg.isLiteral()) {
           // Просто продолжаем со следующего сегмента
@@ -187,7 +189,7 @@ AnyResource const *ResourceTree::findImpl(segments_encoded_view path,
                                           std::string_view *&matches,
                                           std::string_view *&ids) const {
   if (path.empty())
-    path = segments_encoded_view("./");
+    path = segments_encoded_view("/");
   ResourceNode const *p =
       tryMatch(path.begin(), path.end(), &nodes_.front(), 0, matches, ids);
   if (p)
