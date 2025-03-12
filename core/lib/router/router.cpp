@@ -24,7 +24,6 @@
 #include <boost/url/url.hpp>
 
 #include <algorithm>
-#include <iostream>
 #include <ranges>
 #include <vector>
 
@@ -33,10 +32,11 @@ namespace urls {
 namespace router {
 
 bool SegmentPattern::match(pct_string_view seg) const {
+  // Литералы требуют полного соответствия
   if (isLiteral_)
     return *seg == str_;
 
-  // Другие узлы матчатся с любой строкой
+  // Поле замены, такое как "{name}" может быть чем угодно
   return true;
 }
 
@@ -47,7 +47,7 @@ std::string_view SegmentPattern::id() const {
 
 auto SegmentPatternRule::parse(char const *&it, char const *end) const noexcept
     -> system::result<value_type> {
-  // Поле замены, например "/{name}", где name это идентификатор
+  // Поле замены, например "{name}", где name это идентификатор
   static constexpr auto idRule = grammar::tuple_rule(
       grammar::squelch(grammar::delim_rule('{')), detail::identifier_rule,
       grammar::squelch(grammar::delim_rule('}')));
@@ -57,19 +57,19 @@ auto SegmentPatternRule::parse(char const *&it, char const *end) const noexcept
   auto next = std::find_if(it, end, [](char c) { return c == '/'; });
 
   std::string_view segment(it, next);
+  it = next;
 
   if (auto res = grammar::parse(segment, idRule); res) {
     segmentPattern.str_ = *res;
     segmentPattern.isLiteral_ = false;
-  } else {
-    // Литеральный сегмент
-    auto rv = grammar::parse(segment, urls::detail::segment_rule);
-    BOOST_ASSERT(rv);
-    rv->decode({}, urls::string_token::assign_to(segmentPattern.str_));
-    segmentPattern.isLiteral_ = true;
+    return segmentPattern;
   }
 
-  it = next;
+  // Литеральный сегмент
+  auto rv = grammar::parse(segment, urls::detail::segment_rule);
+  BOOST_ASSERT(rv);
+  rv->decode({}, urls::string_token::assign_to(segmentPattern.str_));
+  segmentPattern.isLiteral_ = true;
   return segmentPattern;
 }
 
@@ -106,76 +106,67 @@ void ResourceTree::insertImpl(std::string_view path, AnyResource const *v) {
   cur.resource = v;
 }
 
-ResourceNode const *ResourceTree::tryMatch(
-    segments_encoded_view::const_iterator it,
-    segments_encoded_view::const_iterator end, ResourceNode const *cur,
-    int level, std::string_view *&matches, std::string_view *&ids) const {
-  while (it != end) {
-    pct_string_view s = *it;
-    BOOST_ASSERT(!s.starts_with("."));
+ResourceNode const *
+ResourceTree::tryMatch(segments_encoded_view::const_iterator it,
+                       segments_encoded_view::const_iterator end,
+                       ResourceNode const *cur, MatchesStorage &matches) const {
+  for (; it != end; ++it) {
+    pct_string_view segment = *it;
+    BOOST_ASSERT(!segment.starts_with("."));
 
     // Определяем, нужно ли выполнять ветвление.
     // Ветвление необходимо, если есть более одного потенциального совпадения
     // или если есть нелитеральный сегмент с модификатором.
     bool needBranching = false;
-    size_t matchCount = 0UL;
-    // FIXME(xin0nix): нужна ли здесь проверка на cur->children.size() > 1 ??
-    auto getNode = [this](size_t idx) -> auto & { return nodes_.at(idx); };
-    for (auto child : cur->children) {
-      matchCount += static_cast<size_t>(getNode(child).seg.match(s));
+    size_t matchCount = std::ranges::count_if(cur->children, [&](auto child) {
+      return nodes_.at(child).seg.match(segment);
+    });
+    // Совпадений не найдено - смысла искать дальше попросту нет
+    if (matchCount == 0) {
+      return nullptr;
     }
     if (matchCount > 1) {
       needBranching = true;
     }
 
-    // Попытка сопоставить каждый дочерний узел
-    ResourceNode const *r = nullptr;
-    bool matchesAny = false;
-    for (auto child : cur->children) {
-      auto &&c = getNode(child);
-      if (c.seg.match(s)) {
-        if (c.seg.isLiteral()) {
-          // Просто продолжаем со следующего сегмента
-          if (needBranching) {
-            if (r = tryMatch(std::next(it), end, &c, level, matches, ids); r) {
-              return r;
-            }
-          } else {
-            cur = &c;
-            matchesAny = true;
-            break;
-          }
-        } else {
-          // Просто продолжаем со следующего сегмента
-          if (needBranching) {
-            auto matches0 = matches;
-            auto ids0 = ids;
-            *matches++ = *it;
-            *ids++ = c.seg.id();
-            if (r = tryMatch(std::next(it), end, &c, level, matches, ids); r) {
-              return r;
-            }
-            // "Откат"
-            matches = matches0;
-            ids = ids0;
-          } else {
-            // Найден единственный возможный путь для продолжения поиска
-            *matches++ = *it;
-            *ids++ = c.seg.id();
-            cur = &c;
-            matchesAny = true;
-            break;
-          }
-        }
+    // Мы знаем что среди дочерних узлов есть совпадения, чекнем их
+    for (auto chIdx : cur->children) {
+      const auto &child = nodes_.at(chIdx);
+      // Мы знаем что один из дочерних узлов точно совпадает, идём к следующему
+      // Здесь есть избыточность, ведь мы уже могли посетить нужный узел
+      if (!child.seg.match(segment)) {
+        continue;
       }
+      // Литеральный сегмент
+      if (child.seg.isLiteral()) {
+        if (!needBranching) {
+          // FIXME(xin0nix): почему мы не обновляем matches здесь?
+          // Идём вглубь, мы нашли единственный вариант на этом уровне
+          cur = &child;
+          break;
+        }
+        if (auto *res = tryMatch(std::next(it), end, &child, matches); res) {
+          return res;
+        }
+        // Продолжаем горизонтальный поиск
+        continue;
+      }
+      // Поле замены
+      auto &&id = child.seg.id();
+      BOOST_ASSERT(!matches.contains(id));
+      matches[id] = segment;
+      if (!needBranching) {
+        // Идём вглубь, мы нашли единственный вариант на этом уровне
+        cur = &child;
+        break;
+      }
+      if (auto *res = tryMatch(std::next(it), end, &child, matches); res) {
+        return res;
+      }
+      // "Перемотка", нужно удалить сохранённое совпадение для поле замены
+      matches.erase(id);
     }
-    if (r)
-      return r;
-    ++it;
   }
-
-  // Путь закончился ниже или выше существующего узла
-  BOOST_ASSERT(level == 0);
 
   if (!cur->resource) {
     // Мы обработали весь входной путь и достигли
@@ -186,14 +177,13 @@ ResourceNode const *ResourceTree::tryMatch(
 }
 
 AnyResource const *ResourceTree::findImpl(segments_encoded_view path,
-                                          std::string_view *&matches,
-                                          std::string_view *&ids) const {
-  if (path.empty())
-    path = segments_encoded_view("/");
-  ResourceNode const *p =
-      tryMatch(path.begin(), path.end(), &nodes_.front(), 0, matches, ids);
-  if (p)
+                                          MatchesStorage &matches) const {
+
+  if (ResourceNode const *p =
+          tryMatch(path.begin(), path.end(), &nodes_.front(), matches);
+      p) {
     return p->resource;
+  }
   return nullptr;
 }
 

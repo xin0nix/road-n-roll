@@ -21,6 +21,18 @@ TEST_F(SegmentPatternTest, LiteralMatch) {
   EXPECT_FALSE(pattern.match(seg2));
 }
 
+TEST_F(SegmentPatternTest, ComparisonOperators) {
+  SegmentPattern a, b;
+  a.str_ = "a";
+  a.isLiteral_ = true;
+  b.str_ = "b";
+  b.isLiteral_ = true;
+
+  EXPECT_TRUE(a == a);
+  EXPECT_FALSE(a == b);
+  EXPECT_TRUE(a < b);
+}
+
 TEST_F(SegmentPatternTest, NonLiteralMatch) {
   SegmentPattern pattern;
   pattern.str_ = "{test}";
@@ -64,7 +76,7 @@ TEST_F(SegmentPatternTest, ParseNonLiteral) {
 
   auto result = rule.parse(input, end);
   ASSERT_TRUE(result.has_value());
-  EXPECT_EQ(result->string(), "id");
+  EXPECT_EQ(result->id(), "id");
   EXPECT_FALSE(result->isLiteral());
 }
 
@@ -106,7 +118,7 @@ TEST_F(SegmentPatternTest, ParseMultipleLiteralSegments) {
 
 // FIXME:
 TEST_F(SegmentPatternTest, ParseMixedSegments) {
-  std::string_view input = "/app/games/{player}/achievements";
+  std::string_view input = "/app/games/{playerId}/achievements";
 
   auto result = parse(input, kPathPatternRule);
   ASSERT_TRUE(result.has_value());
@@ -117,7 +129,7 @@ TEST_F(SegmentPatternTest, ParseMixedSegments) {
   EXPECT_TRUE(segments[0].isLiteral());
   EXPECT_EQ(segments[1].string(), "games");
   EXPECT_TRUE(segments[1].isLiteral());
-  EXPECT_EQ(segments[2].string(), "player");
+  EXPECT_EQ(segments[2].id(), "playerId");
   EXPECT_FALSE(segments[2].isLiteral());
   EXPECT_EQ(segments[3].string(), "achievements");
   EXPECT_TRUE(segments[3].isLiteral());

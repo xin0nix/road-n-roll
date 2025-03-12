@@ -15,14 +15,15 @@
 #include <boost/url/grammar.hpp>
 #include <boost/url/parse_path.hpp>
 
-#include "matches.hpp"
-
 #include <deque>
 #include <stdexcept>
+#include <unordered_map>
 
 namespace boost {
 namespace urls {
 namespace router {
+
+using MatchesStorage = std::unordered_map<std::string_view, std::string>;
 
 // Паттерн сегмента пути к ресурсу
 struct SegmentPattern {
@@ -89,8 +90,9 @@ struct ResourceTree {
   }
 
   ~ResourceTree() {
-    for (auto &r : nodes_)
+    for (auto &r : nodes_) {
       delete r.resource;
+    }
   }
 
   /**
@@ -111,8 +113,7 @@ struct ResourceTree {
    * @brief Ищет ресурс в дереве маршрутизации по заданному пути.
    *
    * @param path Закодированные сегменты пути для поиска
-   * @param matches Указатель на массив для хранения совпавших сегментов
-   * @param ids Указатель на массив для хранения идентификаторов сегментов
+   * @param matches Словарик для хранения совпавших сегментов
    *
    * @return Указатель на найденный ресурс или nullptr, если ресурс не найден
    *
@@ -120,8 +121,7 @@ struct ResourceTree {
    * дополнительной информации о найденном пути.
    */
   AnyResource const *findImpl(segments_encoded_view path,
-                              std::string_view *&matches,
-                              std::string_view *&ids) const;
+                              MatchesStorage &matches) const;
 
 protected:
   /**
@@ -130,9 +130,7 @@ protected:
    * @param it Итератор начала текущего сегмента пути
    * @param end Итератор конца пути
    * @param cur Текущий узел в дереве
-   * @param level Текущий уровень в дереве
-   * @param matches Указатель на массив для сохранения совпавших сегментов
-   * @param ids Указатель на массив для сохранения идентификаторов сегментов
+   * @param matches Словарик для сохранения совпавших сегментов
    *
    * @note В основе алгоритм лежит backtracking с восстановлением состояний
    *
@@ -140,9 +138,8 @@ protected:
    */
   ResourceNode const *tryMatch(segments_encoded_view::const_iterator it,
                                segments_encoded_view::const_iterator end,
-                               ResourceNode const *root, int level,
-                               std::string_view *&matches,
-                               std::string_view *&ids) const;
+                               ResourceNode const *root,
+                               MatchesStorage &matches) const;
 
   // Пул узлов в дереве ресурсов. Для доступа к ним используется индекс.
   std::deque<ResourceNode> nodes_;
@@ -173,6 +170,7 @@ template <class T> struct Router : router::ResourceTree {
         typename std::conditional<std::is_base_of_v<T, U>, U, T>::type>::type;
     struct Impl : router::AnyResource {
       U_ u;
+      virtual ~Impl() = default;
       explicit Impl(U &&u_) : u(std::forward<U>(u_)) {}
       void const *get() const noexcept override { return &u; }
     };
@@ -185,16 +183,11 @@ template <class T> struct Router : router::ResourceTree {
    * @param m Объект для хранения информации о совпадениях
    * @return Указатель на обработчик или nullptr, если совпадений не найдено
    */
-  T const *find(segments_encoded_view path, MatchesBase &m) const noexcept {
-    std::string_view *matches_it = m.matches();
-    std::string_view *ids_it = m.ids();
-    AnyResource const *p = findImpl(path, matches_it, ids_it);
+  T const *find(segments_encoded_view path, MatchesStorage &m) const noexcept {
+    AnyResource const *p = findImpl(path, m);
     if (p) {
-      BOOST_ASSERT(matches_it >= m.matches());
-      m.resize(static_cast<std::size_t>(matches_it - m.matches()));
       return reinterpret_cast<T const *>(p->get());
     }
-    m.resize(0);
     return nullptr;
   }
 
