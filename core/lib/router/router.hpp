@@ -78,7 +78,7 @@ struct ResourceNode {
   SegmentPattern seg{};
 
   // FIXME(xin0nix): меня смущает сырой указатель
-  AnyResource const *resource{nullptr};
+  std::unique_ptr<const AnyResource> resource{nullptr};
   std::size_t parent{0UL};
   std::vector<std::size_t> children;
 };
@@ -87,12 +87,6 @@ struct ResourceTree {
   ResourceTree() {
     // Корневой узел без каких-либо связанных с ним ресурсов
     nodes_.push_back(ResourceNode{});
-  }
-
-  ~ResourceTree() {
-    for (auto &r : nodes_) {
-      delete r.resource;
-    }
   }
 
   /**

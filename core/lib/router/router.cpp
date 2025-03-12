@@ -100,10 +100,7 @@ void ResourceTree::insertImpl(std::string_view path, AnyResource const *v) {
     curIdx = chIdx;
   }
   auto &cur = getNode(curIdx);
-  if (cur.resource) {
-    delete cur.resource;
-  }
-  cur.resource = v;
+  cur.resource.reset(v);
 }
 
 ResourceNode const *
@@ -178,11 +175,10 @@ ResourceTree::tryMatch(segments_encoded_view::const_iterator it,
 
 AnyResource const *ResourceTree::findImpl(segments_encoded_view path,
                                           MatchesStorage &matches) const {
-
   if (ResourceNode const *p =
           tryMatch(path.begin(), path.end(), &nodes_.front(), matches);
       p) {
-    return p->resource;
+    return p->resource.get();
   }
   return nullptr;
 }
