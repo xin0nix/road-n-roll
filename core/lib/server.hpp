@@ -1,7 +1,13 @@
+#pragma once
+
+#include "boost/url/grammar/parse.hpp"
+#include "boost/url/rfc/uri_rule.hpp"
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 #include <boost/beast/core/tcp_stream.hpp>
 #include <boost/json.hpp>
+#include <boost/url.hpp>
+#include <boost/url/grammar.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
@@ -11,17 +17,16 @@
 #include <string>
 #include <unordered_map>
 
+namespace core {
+
 namespace beast = boost::beast;
 namespace http = beast::http;
 namespace asio = boost::asio;
 namespace json = boost::json;
+
 using tcp = asio::ip::tcp;
 
-/**
- * @brief Класс HTTP-сервера, обрабатывающий запросы на работу с играми.
- */
-class CoreServer {
-public:
+struct CoreServer {
   /**
    * @brief Конструктор нового объекта http_server
    *
@@ -38,6 +43,10 @@ public:
     std::cout << "Сервер запущен на http://" << address_ << ":" << port_
               << std::endl;
   }
+
+  // FIXME: нужно добавить router
+  // https://www.boost.org/doc/libs/1_87_0/doc/antora/url/examples/router.html
+  void get(std::string_view resource) {}
 
 private:
   asio::ip::address address_;
@@ -141,20 +150,4 @@ private:
     return res;
   }
 };
-
-/**
- * @brief Главная функция для запуска HTTP-сервера
- *
- * @return int Код завершения
- */
-int main() {
-  try {
-    CoreServer server("127.0.0.1", 8080);
-    server.run();
-  } catch (const std::exception &e) {
-    std::cerr << "Ошибка: " << e.what() << std::endl;
-    return 1;
-  }
-  std::cerr << "Выход" << std::endl;
-  return 0;
-}
+} // namespace core
