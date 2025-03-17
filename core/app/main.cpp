@@ -8,6 +8,7 @@
 
 #include <exception>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <unordered_map>
 
@@ -17,13 +18,18 @@ namespace beast = boost::beast;
 namespace http = beast::http;
 namespace asio = boost::asio;
 namespace json = boost::json;
+namespace router = boost::urls::router;
 using tcp = asio::ip::tcp;
 
 /**
  * @brief Класс HTTP-сервера, обрабатывающий запросы на работу с играми.
  */
-class CoreServer {
-public:
+struct CoreServer : std::enable_shared_from_this<CoreServer> {
+  using Request = http::request<http::string_body>;
+  using Response = http::response<http::string_body>;
+  using Handler = std::function<std::optional<Response>(
+      Request request, router::MatchesStorage matches)>;
+
   /**
    * @brief Конструктор нового объекта http_server
    *
@@ -34,7 +40,30 @@ public:
       : address_(asio::ip::make_address(address)), port_(port), ioc_(),
         workGuard_(boost::asio::make_work_guard(ioc_)), games_() {}
 
+  void init() {
+    // Добавим обработчики для ресурса /games
+    router_.insert(
+        "/games/", [this](Request req, auto _) -> std::optional<Response> {
+          http::response<http::string_body> res{http::status::ok,
+                                                req.version()};
+          if (req.method() == http::verb::post) {
+            boost::uuids::uuid uuid = boost::uuids::random_generator()();
+            std::string uuid_str = boost::uuids::to_string(uuid);
+            std::string url = "/games/" + uuid_str + "/";
+            this->games_[uuid_str] = "Активна";
+            json::object response;
+            response["url"] = url;
+            res.result(http::status::created);
+            res.body() = json::serialize(response);
+            return res;
+          }
+          return std::nullopt;
+        });
+  }
+
   void run() {
+    init();
+
     asio::signal_set signals(ioc_, SIGINT, SIGTERM);
     signals.async_wait([this](auto, auto) {
       ioc_.stop();
@@ -65,6 +94,7 @@ private:
   boost::asio::executor_work_guard<boost::asio::io_context::executor_type>
       workGuard_;
   std::unordered_map<std::string, std::string> games_;
+  router::Router<Handler> router_;
 
   /**
    * @brief Принимает входящие соединения и запускает сессии
@@ -133,31 +163,17 @@ private:
     res.set(http::field::server, "Core");
     res.set(http::field::content_type, "application/json");
     res.keep_alive(req.keep_alive());
-    if (req.method() == http::verb::post and req.target() == "/games/") {
-      return create_game(res);
+    router::MatchesStorage matches;
+    const Handler *handler = router_.find(req.target(), matches);
+    if (handler) {
+      auto maybeResp = (*handler)(req, matches);
+      if (maybeResp) {
+        return *maybeResp;
+      }
     }
     res.result(http::status::not_found);
     res.set(http::field::content_type, "application/json");
     res.body() = "{}";
-    return res;
-  }
-
-  /**
-   * @brief Создает новую игру и возвращает ответ
-   *
-   * @param res Объект HTTP-ответа для заполнения
-   * @return http::response<http::string_body> Заполненный HTTP-ответ
-   */
-  http::response<http::string_body>
-  create_game(http::response<http::string_body> &res) {
-    boost::uuids::uuid uuid = boost::uuids::random_generator()();
-    std::string uuid_str = boost::uuids::to_string(uuid);
-    std::string url = "/games/" + uuid_str + "/";
-    games_[uuid_str] = "Активна";
-    json::object response;
-    response["url"] = url;
-    res.result(http::status::created);
-    res.body() = json::serialize(response);
     return res;
   }
 };

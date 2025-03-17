@@ -168,7 +168,8 @@ template <class T> struct Router : router::ResourceTree {
       explicit Impl(U &&u_) : u(std::forward<U>(u_)) {}
       void const *get() const noexcept override { return &u; }
     };
-    insertImpl(pattern, new Impl(v));
+    // FIXME(xin0nix): перепроверить что копирование запрещено
+    insertImpl(pattern, new Impl(std::forward<U>(v)));
   }
 
   /** @brief Находит подходящий обработчик для заданного URL-пути.
@@ -177,6 +178,7 @@ template <class T> struct Router : router::ResourceTree {
    * @param m Объект для хранения информации о совпадениях
    * @return Указатель на обработчик или nullptr, если совпадений не найдено
    */
+  // TODO: возвращать std::optional<std::reference_wrapper<const T>>
   T const *find(segments_encoded_view path, MatchesStorage &m) const noexcept {
     AnyResource const *p = findImpl(path, m);
     if (p) {
