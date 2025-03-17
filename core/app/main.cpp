@@ -11,6 +11,8 @@
 #include <string>
 #include <unordered_map>
 
+#include "router.hpp"
+
 namespace beast = boost::beast;
 namespace http = beast::http;
 namespace asio = boost::asio;
@@ -33,10 +35,27 @@ public:
         workGuard_(boost::asio::make_work_guard(ioc_)), games_() {}
 
   void run() {
-    asio::co_spawn(ioc_, listener({address_, port_}), asio::detached);
+    asio::signal_set signals(ioc_, SIGINT, SIGTERM);
+    signals.async_wait([this](auto, auto) {
+      ioc_.stop();
+      // Можно добавить дополнительную логику очистки
+    });
+
+    asio::co_spawn(ioc_, listener({address_, port_}),
+                   [](std::exception_ptr ep) {
+                     if (!ep)
+                       return;
+                     try {
+                       std::rethrow_exception(ep);
+                     } catch (const std::system_error &e) {
+                       std::cerr << "Системная ошибка: " << e.what()
+                                 << " (code: " << e.code() << ")\n";
+                     } catch (const std::exception &e) {
+                       std::cerr << "Критическая ошибка: " << e.what() << "\n";
+                     }
+                   });
+
     ioc_.run();
-    std::cout << "Сервер запущен на http://" << address_ << ":" << port_
-              << std::endl;
   }
 
 private:
@@ -53,19 +72,20 @@ private:
    * @return asio::awaitable<void>
    */
   asio::awaitable<void> listener(tcp::endpoint endpoint) {
-    auto &&executor = co_await asio::this_coro::executor;
-    auto acceptor = asio::use_awaitable.as_default_on(tcp::acceptor(executor));
-    // acceptor.set_option(asio::socket_base::reuse_address(true));
-    acceptor.open(endpoint.protocol());
-    acceptor.bind(endpoint);
-    acceptor.listen(asio::socket_base::max_listen_connections);
-    for (;;) {
-      try {
+    try {
+      auto &&executor = co_await asio::this_coro::executor;
+      auto acceptor =
+          asio::use_awaitable.as_default_on(tcp::acceptor(executor));
+      std::cout << "Слушаю клиентов http://" << endpoint << std::endl;
+      acceptor.open(endpoint.protocol());
+      acceptor.bind(endpoint);
+      acceptor.listen(asio::socket_base::max_listen_connections);
+      for (;;) {
         asio::co_spawn(executor, session(co_await acceptor.async_accept()),
                        asio::detached);
-      } catch (std::exception &e) {
-        std::cerr << "Ошибка приема: " << e.what() << std::endl;
       }
+    } catch (...) {
+      std::rethrow_exception(std::current_exception());
     }
   }
 
