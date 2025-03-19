@@ -10,6 +10,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 
 #include "router.hpp"
@@ -44,20 +45,59 @@ struct CoreServer : std::enable_shared_from_this<CoreServer> {
     // Добавим обработчики для ресурса /games
     router_.insert(
         "/games/", [this](Request req, auto _) -> std::optional<Response> {
-          http::response<http::string_body> res{http::status::ok,
-                                                req.version()};
           if (req.method() == http::verb::post) {
             boost::uuids::uuid uuid = boost::uuids::random_generator()();
-            std::string uuid_str = boost::uuids::to_string(uuid);
-            std::string url = "/games/" + uuid_str + "/";
-            this->games_[uuid_str] = "Активна";
+            std::string gameId = boost::uuids::to_string(uuid);
+            std::string url = "/games/" + gameId + "/";
+            this->games_[gameId] = "Активна";
             json::object response;
             response["url"] = url;
+            http::response<http::string_body> res{http::status::ok,
+                                                  req.version()};
             res.result(http::status::created);
             res.body() = json::serialize(response);
             return res;
           }
+          if (req.method() == http::verb::get) {
+            json::object response;
+            json::array gameList;
+            for (auto &&[uuid, _] : games_) {
+              json::object entry{{"url", "/games/" + uuid + "/"}};
+              gameList.push_back(std::move(entry));
+            }
+            response["games"] = std::move(gameList);
+            http::response<http::string_body> res{http::status::ok,
+                                                  req.version()};
+            res.result(http::status::ok);
+            res.body() = json::serialize(response);
+            return res;
+          }
           return std::nullopt;
+        });
+    router_.insert(
+        "/games/{gameId}/",
+        [this](Request req, auto matches) -> std::optional<Response> {
+          auto &&gameId = matches.at("gameId");
+          auto it = games_.find(gameId);
+          if (it == games_.cend()) {
+            http::response<http::string_body> res{http::status::not_found,
+                                                  req.version()};
+            return res;
+          }
+          if (req.method() == http::verb::get) {
+            http::response<http::string_body> res{http::status::ok,
+                                                  req.version()};
+            json::object response{{"url", "/games/" + gameId + "/"},
+                                  {"status", it->second}};
+            res.body() = json::serialize(response);
+            return res;
+          }
+          if (req.method() == http::verb::delete_) {
+            games_.erase(it);
+            http::response<http::string_body> res{http::status::no_content,
+                                                  req.version()};
+            return res;
+          }
         });
   }
 
