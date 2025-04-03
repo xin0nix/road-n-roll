@@ -10,8 +10,11 @@ set(CMAKE_CXX_SCAN_FOR_INCLUDES OFF)
 set(BOOST_INCLUDE_LIBRARIES asio beast json uuid url)
 set(BOOST_ENABLE_CMAKE ON)
 
-include(FetchContent)
+if(WIN32)
+    add_compile_definitions(_WIN32_WINNT=0x0601)
+endif()
 
+include(FetchContent)
 
 FetchContent_Declare(
   Boost
