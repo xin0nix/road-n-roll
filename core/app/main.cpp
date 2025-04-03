@@ -8,20 +8,29 @@
 
 #include <exception>
 #include <iostream>
+#include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
+
+#include "router.hpp"
 
 namespace beast = boost::beast;
 namespace http = beast::http;
 namespace asio = boost::asio;
 namespace json = boost::json;
+namespace router = boost::urls::router;
 using tcp = asio::ip::tcp;
 
 /**
  * @brief Класс HTTP-сервера, обрабатывающий запросы на работу с играми.
  */
-class CoreServer {
-public:
+struct CoreServer : std::enable_shared_from_this<CoreServer> {
+  using Request = http::request<http::string_body>;
+  using Response = http::response<http::string_body>;
+  using Handler = std::function<std::optional<Response>(
+      Request request, router::MatchesStorage matches)>;
+
   /**
    * @brief Конструктор нового объекта http_server
    *
@@ -32,11 +41,90 @@ public:
       : address_(asio::ip::make_address(address)), port_(port), ioc_(),
         workGuard_(boost::asio::make_work_guard(ioc_)), games_() {}
 
+  void init() {
+    // Добавим обработчики для ресурса /games
+    router_.insert(
+        "/games/", [this](Request req, auto _) -> std::optional<Response> {
+          if (req.method() == http::verb::post) {
+            boost::uuids::uuid uuid = boost::uuids::random_generator()();
+            std::string gameId = boost::uuids::to_string(uuid);
+            std::string url = "/games/" + gameId + "/";
+            this->games_[gameId] = "Активна";
+            json::object response;
+            response["url"] = url;
+            http::response<http::string_body> res{http::status::ok,
+                                                  req.version()};
+            res.result(http::status::created);
+            res.body() = json::serialize(response);
+            return res;
+          }
+          if (req.method() == http::verb::get) {
+            json::object response;
+            json::array gameList;
+            for (auto &&[uuid, _] : games_) {
+              json::object entry{{"url", "/games/" + uuid + "/"}};
+              gameList.push_back(std::move(entry));
+            }
+            response["games"] = std::move(gameList);
+            http::response<http::string_body> res{http::status::ok,
+                                                  req.version()};
+            res.result(http::status::ok);
+            res.body() = json::serialize(response);
+            return res;
+          }
+          return std::nullopt;
+        });
+    router_.insert(
+        "/games/{gameId}/",
+        [this](Request req, auto matches) -> std::optional<Response> {
+          auto &&gameId = matches.at("gameId");
+          auto it = games_.find(gameId);
+          if (it == games_.cend()) {
+            http::response<http::string_body> res{http::status::not_found,
+                                                  req.version()};
+            return res;
+          }
+          if (req.method() == http::verb::get) {
+            http::response<http::string_body> res{http::status::ok,
+                                                  req.version()};
+            json::object response{{"url", "/games/" + gameId + "/"},
+                                  {"status", it->second}};
+            res.body() = json::serialize(response);
+            return res;
+          }
+          if (req.method() == http::verb::delete_) {
+            games_.erase(it);
+            http::response<http::string_body> res{http::status::no_content,
+                                                  req.version()};
+            return res;
+          }
+        });
+  }
+
   void run() {
-    asio::co_spawn(ioc_, listener({address_, port_}), asio::detached);
+    init();
+
+    asio::signal_set signals(ioc_, SIGINT, SIGTERM);
+    signals.async_wait([this](auto, auto) {
+      ioc_.stop();
+      // Можно добавить дополнительную логику очистки
+    });
+
+    asio::co_spawn(ioc_, listener({address_, port_}),
+                   [](std::exception_ptr ep) {
+                     if (!ep)
+                       return;
+                     try {
+                       std::rethrow_exception(ep);
+                     } catch (const std::system_error &e) {
+                       std::cerr << "Системная ошибка: " << e.what()
+                                 << " (code: " << e.code() << ")\n";
+                     } catch (const std::exception &e) {
+                       std::cerr << "Критическая ошибка: " << e.what() << "\n";
+                     }
+                   });
+
     ioc_.run();
-    std::cout << "Сервер запущен на http://" << address_ << ":" << port_
-              << std::endl;
   }
 
 private:
@@ -46,6 +134,7 @@ private:
   boost::asio::executor_work_guard<boost::asio::io_context::executor_type>
       workGuard_;
   std::unordered_map<std::string, std::string> games_;
+  router::Router<Handler> router_;
 
   /**
    * @brief Принимает входящие соединения и запускает сессии
@@ -53,19 +142,20 @@ private:
    * @return asio::awaitable<void>
    */
   asio::awaitable<void> listener(tcp::endpoint endpoint) {
-    auto &&executor = co_await asio::this_coro::executor;
-    auto acceptor = asio::use_awaitable.as_default_on(tcp::acceptor(executor));
-    // acceptor.set_option(asio::socket_base::reuse_address(true));
-    acceptor.open(endpoint.protocol());
-    acceptor.bind(endpoint);
-    acceptor.listen(asio::socket_base::max_listen_connections);
-    for (;;) {
-      try {
+    try {
+      auto &&executor = co_await asio::this_coro::executor;
+      auto acceptor =
+          asio::use_awaitable.as_default_on(tcp::acceptor(executor));
+      std::cout << "Слушаю клиентов http://" << endpoint << std::endl;
+      acceptor.open(endpoint.protocol());
+      acceptor.bind(endpoint);
+      acceptor.listen(asio::socket_base::max_listen_connections);
+      for (;;) {
         asio::co_spawn(executor, session(co_await acceptor.async_accept()),
                        asio::detached);
-      } catch (std::exception &e) {
-        std::cerr << "Ошибка приема: " << e.what() << std::endl;
       }
+    } catch (...) {
+      std::rethrow_exception(std::current_exception());
     }
   }
 
@@ -113,31 +203,17 @@ private:
     res.set(http::field::server, "Core");
     res.set(http::field::content_type, "application/json");
     res.keep_alive(req.keep_alive());
-    if (req.method() == http::verb::post and req.target() == "/games/") {
-      return create_game(res);
+    router::MatchesStorage matches;
+    const Handler *handler = router_.find(req.target(), matches);
+    if (handler) {
+      auto maybeResp = (*handler)(req, matches);
+      if (maybeResp) {
+        return *maybeResp;
+      }
     }
     res.result(http::status::not_found);
     res.set(http::field::content_type, "application/json");
     res.body() = "{}";
-    return res;
-  }
-
-  /**
-   * @brief Создает новую игру и возвращает ответ
-   *
-   * @param res Объект HTTP-ответа для заполнения
-   * @return http::response<http::string_body> Заполненный HTTP-ответ
-   */
-  http::response<http::string_body>
-  create_game(http::response<http::string_body> &res) {
-    boost::uuids::uuid uuid = boost::uuids::random_generator()();
-    std::string uuid_str = boost::uuids::to_string(uuid);
-    std::string url = "/games/" + uuid_str + "/";
-    games_[uuid_str] = "Активна";
-    json::object response;
-    response["url"] = url;
-    res.result(http::status::created);
-    res.body() = json::serialize(response);
     return res;
   }
 };
