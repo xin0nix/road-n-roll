@@ -21,6 +21,10 @@ add_subdirectory(lib)
 
 add_executable(ServerTest)
 
+if(WIN32)
+    target_compile_options(ServerTest PRIVATE /EHsc)
+endif()
+
 target_link_libraries(ServerTest
     PUBLIC
     RouterTest
