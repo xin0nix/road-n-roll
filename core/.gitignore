@@ -1,0 +1,8 @@
+# Python artifacts
+dist/
+*.pyc
+*.egg-info
+.venv/*
+
+# IDE
+.vscode/*
