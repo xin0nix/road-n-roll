@@ -1,0 +1,90 @@
+# Основная информация
+openapi: 3.1.0
+info:
+  title: Game API
+  description: API for managing game sessions
+  version: 0.0.1
+# Базовый URL для всех путей API
+servers:
+  - url: /api/v1
+paths:
+  /games:
+    post:
+      summary: Create a new game
+      operationId: createGame
+      responses:
+        "201":
+          description: Game created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GameUrl"
+    get:
+      summary: List all games
+      operationId: listGames
+      responses:
+        "200":
+          description: A list of available games
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GameList"
+  /games/{uuid}:
+    get:
+      summary: Get game details
+      operationId: getGame
+      parameters:
+        - name: uuid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Game details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GameUrl"
+        "404":
+          description: Game not found
+    delete:
+      summary: Delete a game
+      operationId: deleteGame
+      parameters:
+        - name: uuid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Game deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {}
+
+components:
+  schemas:
+    GameUrl:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          example: "games/550e8400-e29b-41d4-a716-446655440000"
+      required:
+        - url
+    GameList:
+      type: object
+      properties:
+        games:
+          type: array
+          items:
+            $ref: "#/components/schemas/GameUrl"
+      required:
+        - games

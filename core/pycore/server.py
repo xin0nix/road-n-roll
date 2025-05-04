@@ -1,15 +1,29 @@
-import os
 import subprocess
 import atexit
-import sys
 from importlib.resources import files, as_file
 from pathlib import Path
+import sys
 
 
 class Server:
     def __init__(self):
-        # Get resource path (works in both development and installed package)
-        resource_path = files("pycore").joinpath("../build/win-release/app/CoreApp.exe")
+        is_windows = sys.platform.startswith("win")
+        is_linux = sys.platform.startswith("linux")
+        resource_path: str = None
+        if is_windows:
+            resource_path = files("pycore").joinpath(
+                "../build/win-release/app/CoreApp.exe"
+            )
+        elif is_linux:
+            resource_path = files("pycore").joinpath("../build/clang-debug/app/CoreApp")
+        else:
+            raise NotImplementedError(f"Unsupported operating system: {sys.platform}")
+
+        if not Path(resource_path).exists():
+            raise FileNotFoundError(
+                f"Could not find application binary at: {resource_path}\n"
+                f"Please ensure the application has been built for {sys.platform}"
+            )
 
         # Convert to absolute filesystem path
         with as_file(resource_path) as exe_path:

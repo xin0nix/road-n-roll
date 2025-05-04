@@ -3,6 +3,7 @@ dist/
 *.pyc
 *.egg-info
 .venv/*
+pycore/api/
 
 # IDE
 .vscode/*

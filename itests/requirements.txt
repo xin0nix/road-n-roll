@@ -1,0 +1,4 @@
+dist/pycore-0.0.1-cp312-cp312-manylinux_2_39_x86_64.whl
+openapi-python-client==0.24.3
+pytest-asyncio==0.26.0
+pytest==8.3.5
