@@ -1,1 +1,2 @@
+openapi-python-client==0.24.3
 setuptools==78.1.0
