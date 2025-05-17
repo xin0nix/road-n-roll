@@ -7,6 +7,7 @@ endif()
 target_link_libraries(CoreApp PRIVATE
     CoreLib
     Boost::program_options
+    Boost::log
 )
 
 find_package(Python REQUIRED COMPONENTS Interpreter)
@@ -17,14 +18,16 @@ else()
   set(PYCORE_BINARY "${CMAKE_SOURCE_DIR}/pycore/bin/CoreApp")
 endif()
 
-add_custom_command(TARGET CoreApp POST_BUILD
+add_custom_command(
+    OUTPUT ${PYCORE_BINARY}
+    DEPENDS CoreApp
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/pycore/bin
     COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:CoreApp> ${PYCORE_BINARY}
     COMMENT "Copy CoreApp binary into pycore/bin"
 )
 
-add_custom_target(copy_coreapp
-    DEPENDS CoreApp ${PYCORE_BINARY}
+add_custom_target(copy_coreapp ALL
+    DEPENDS $<TARGET_FILE:CoreApp> ${PYCORE_BINARY}
 )
 
 if(WIN32)
