@@ -1,25 +1,40 @@
 import pytest
-from pycore import Server, Client, Requests, Errors
+from game_api_client import Client
+from game_api_client.api.default import create_game
+from game_api_client.errors import UnexpectedStatus
+from pycore import Server
+import pytest_asyncio
+import asyncio
 
 
-@pytest.fixture(scope="module")
-async def api_server():
-    srv = Server()
+CORE_HOST = "127.0.0.1"
+CORE_PORT = 4321
+
+
+@pytest_asyncio.fixture(scope="function")
+async def game_server():
+    """see https://docs.pytest.org/en/6.2.x/fixture.html#yield-fixtures-recommended"""
+    # Setup
+    srv = Server(CORE_HOST, CORE_PORT)
     srv.start()
-    # Optionally wait a bit for server to be ready, e.g. asyncio.sleep(1)
+    await asyncio.sleep(1)  # wait for server to be ready
     yield srv
-    srv.stop()
+    # Teardown
+    captured = srv.stop()
+    print(captured)
 
 
 @pytest.mark.asyncio
-async def test_game_api(api_server):
-    client = Client(base_url="http://127.0.0.1:8080", timeout=30.0, verify_ssl=False)
-    print(f"Server started: {api_server}")
-    with client as client:
+async def test_create_game(game_server):
+    client = Client(
+        base_url=f"http://{CORE_HOST}:{CORE_PORT}", timeout=30.0, verify_ssl=False
+    )
+    async with client as client:  # assuming Client supports async context manager
         try:
-            list_response = await Requests["create_game"].asyncio(client=client)
-            print(list_response)
-        except Errors.UnexpectedStatus as e:
+            game_url = await create_game.asyncio(client=client)
+            assert game_url
+            assert game_url.url.startswith("/games/")
+        except UnexpectedStatus as e:
             print(f"API Error: {e.status_code} - {e.content}")
             pytest.fail(f"API Error: {e.status_code} - {e.content}")
         except ConnectionError as e:

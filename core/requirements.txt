@@ -1,2 +1,5 @@
+black==25.1.0
+build==1.2.2
 openapi-python-client==0.24.3
+ruff==0.11.9
 setuptools==78.1.0

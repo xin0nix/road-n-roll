@@ -4,6 +4,8 @@
 
 # Build
 build/
+pycore/bin/
 
 # Python
 .venv
+itests/dist
