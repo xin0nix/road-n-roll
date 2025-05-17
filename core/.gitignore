@@ -3,7 +3,11 @@ dist/
 *.pyc
 *.egg-info
 .venv/*
-pycore/api/
+core-api/
+pycore/bin/CoreApp
+pycore/bin/CoreApp.exe
 
 # IDE
 .vscode/*
+
+# Build

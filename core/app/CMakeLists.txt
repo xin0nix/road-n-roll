@@ -6,19 +6,72 @@ endif()
 
 target_link_libraries(CoreApp PRIVATE
     CoreLib
+    Boost::program_options
 )
 
-# Find Python and ensure we can create virtual environments
 find_package(Python REQUIRED COMPONENTS Interpreter)
 
-add_custom_target(build_wheel ALL
+if(WIN32)
+  set(PYCORE_BINARY "${CMAKE_SOURCE_DIR}/pycore/bin/CoreApp.exe")
+else()
+  set(PYCORE_BINARY "${CMAKE_SOURCE_DIR}/pycore/bin/CoreApp")
+endif()
+
+add_custom_command(TARGET CoreApp POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/pycore/bin
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:CoreApp> ${PYCORE_BINARY}
+    COMMENT "Copy CoreApp binary into pycore/bin"
+)
+
+add_custom_target(copy_coreapp
+    DEPENDS CoreApp ${PYCORE_BINARY}
+)
+
+if(WIN32)
+  set(PYTHON_VENV_PYTHON "${CMAKE_BINARY_DIR}/venv/Scripts/python.exe")
+else()
+  set(PYTHON_VENV_PYTHON "${CMAKE_BINARY_DIR}/venv/bin/python")
+endif()
+
+add_custom_target(pycore_venv
     COMMAND ${Python_EXECUTABLE} -m venv ${CMAKE_BINARY_DIR}/venv
-    COMMAND . ${CMAKE_BINARY_DIR}/venv/bin/activate && 
-            ${CMAKE_BINARY_DIR}/venv/bin/pip install -r ${CMAKE_SOURCE_DIR}/requirements.txt
-    COMMAND . ${CMAKE_BINARY_DIR}/venv/bin/activate && 
-            ${CMAKE_BINARY_DIR}/venv/bin/python setup.py bdist_wheel
+    COMMAND ${PYTHON_VENV_PYTHON} -m pip install --upgrade pip
+    COMMAND ${PYTHON_VENV_PYTHON} -m pip install -r ${CMAKE_SOURCE_DIR}/requirements.txt
+    COMMENT "Creating Python venv and installing requirements"
+    BYPRODUCTS ${CMAKE_BINARY_DIR}/venv
+)
+
+
+add_custom_command(
+    OUTPUT ${CMAKE_SOURCE_DIR}/core-api/setup.py
+    COMMAND ${PYTHON_VENV_PYTHON} -m openapi_python_client generate
+            --path ${CMAKE_SOURCE_DIR}/specs/openapi.yaml
+            --output-path ${CMAKE_SOURCE_DIR}/core-api
+            --overwrite --meta setup
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    COMMENT "Setting up environment and building wheel"
-    DEPENDS CoreApp
-    VERBATIM
+    DEPENDS pycore_venv
+    COMMENT "Generating OpenAPI client"
+)
+
+add_custom_target(generate_core_api
+    DEPENDS ${CMAKE_SOURCE_DIR}/core-api/setup.py
+)
+
+add_custom_target(pycore_wheel
+    COMMAND ${PYTHON_VENV_PYTHON} -m build --wheel --outdir ${CMAKE_BINARY_DIR}/dist
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    DEPENDS copy_coreapp pycore_venv CoreApp
+    COMMENT "Building pycore wheel"
+)
+
+add_custom_target(core_api_wheel
+    COMMAND ${PYTHON_VENV_PYTHON} -m build --wheel --outdir ${CMAKE_BINARY_DIR}/dist
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/core-api
+    DEPENDS pycore_venv generate_core_api
+    COMMENT "Building core-api wheel"
+)
+
+add_custom_target(build_all_wheels ALL
+    DEPENDS pycore_wheel core_api_wheel
+    COMMENT "Building all Python wheels"
 )

@@ -7,6 +7,11 @@
 - Boost 1.85.0 (automatically downloaded during build)
 
 ### Build Process
+Prerequisites:
+```sh
+sudo snap install ruff
+```
+
 1. Configure the project:
 ```sh
 cmake --preset=clang-debug
@@ -18,7 +23,7 @@ cmake --build build/clang-debug
 ```
 
 3. The generated wheel will be located at (example path):
-```
+```sh
 dist/pycore-0.0.1-cp312-cp312-manylinux_2_28.whl
 ```
 
