@@ -5,9 +5,14 @@ if(WIN32)
 endif()
 
 target_link_libraries(CoreApp PRIVATE
-    CoreLib
+    Router
+    Server
     Boost::program_options
     Boost::log
+    Boost::url
+    Boost::beast
+    Boost::json
+    Boost::uuid
 )
 
 find_package(Python REQUIRED COMPONENTS Interpreter)

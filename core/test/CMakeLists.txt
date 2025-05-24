@@ -30,4 +30,8 @@ target_link_libraries(ServerTest
     RouterTest
     GTest::gtest_main
     GTest::gmock_main
+      Boost::url
+    Boost::beast
+    Boost::json
+    Boost::uuid
 )

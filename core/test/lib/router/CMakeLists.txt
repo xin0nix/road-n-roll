@@ -6,4 +6,8 @@ add_library(RouterTest OBJECT
 target_link_libraries(RouterTest PRIVATE Router
     GTest::gtest
     GTest::gmock
+    Boost::url
+    Boost::beast
+    Boost::json
+    Boost::uuid
 )
