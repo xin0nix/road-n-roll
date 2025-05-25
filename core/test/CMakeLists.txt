@@ -27,10 +27,11 @@ endif()
 
 target_link_libraries(ServerTest
     PUBLIC
+    Router
     RouterTest
     GTest::gtest_main
     GTest::gmock_main
-      Boost::url
+    Boost::url
     Boost::beast
     Boost::json
     Boost::uuid

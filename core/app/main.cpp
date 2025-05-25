@@ -26,7 +26,7 @@ using tcp = asio::ip::tcp;
 struct GameStore {
   using Request = core::CoreServer::Request;
   using Response = core::CoreServer::Response;
-  void init(core::CoreServer &server) {
+  void attachTo(core::CoreServer &server) {
     BOOST_LOG_TRIVIAL(info) << "[Сервер] Регистрация маршрутов..." << std::endl;
     // Добавим обработчики для ресурса /games
     server.get(
@@ -138,6 +138,7 @@ int main(int argc, char *argv[]) {
 
     core::CoreServer server;
     GameStore games;
+    games.attachTo(server);
     server.run({asio::ip::make_address(host), port});
   } catch (const std::exception &e) {
     BOOST_LOG_TRIVIAL(fatal) << "[MAIN] Ошибка: " << e.what() << std::endl;
