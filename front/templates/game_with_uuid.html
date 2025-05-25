@@ -8,14 +8,28 @@
 </head>
 
 <body class="p-4">
+    <!-- Home Button -->
+    <a href="{{ url_for('index') }}" class="btn btn-outline-secondary mb-4">
+        🏠 Домой
+    </a>
+
     <h1>Информация об игре</h1>
 
-    {% if game_info %}
-    <div>
-        <div class="p-3">
-            <a mt-3>"{{ game_info.status }}"</a>
-        </div>
+    {% if game %}
+    <div class="p-3 border rounded shadow-sm" style="max-width: 400px;">
+        <h3 class="mb-3">Игра #{{ game['name'] }}</h3>
+
+        <p>
+            Статус:
+            {% if game['status'] == 'Активна' %}
+            <span class="badge bg-success">{{ game['status'] }}</span>
+            {% else %}
+            <span class="badge bg-secondary">{{ game['status'] }}</span>
+            {% endif %}
+        </p>
     </div>
+    {% else %}
+    <p>Информация об игре недоступна.</p>
     {% endif %}
 </body>
 
