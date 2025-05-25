@@ -3,7 +3,7 @@ openapi: 3.1.0
 info:
   title: Game API
   description: API for managing game sessions
-  version: 0.0.1
+  version: 0.0.2
 # Базовый URL для всех путей API
 servers:
   - url: /api/v1
@@ -62,11 +62,6 @@ paths:
       responses:
         "204":
           description: Game deleted successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties: {}
 
 components:
   schemas:

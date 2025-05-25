@@ -1,0 +1,4 @@
+dist/game_api_client-0.0.2-py3-none-any.whl
+openapi-python-client==0.24.3
+pytest-asyncio==0.26.0
+pytest==8.3.5
