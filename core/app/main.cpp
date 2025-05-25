@@ -11,261 +11,13 @@
 #include <cstdlib>
 #include <exception>
 #include <iostream>
-#include <memory>
 #include <string>
-#include <string_view>
-#include <unordered_map>
 
-#include "router.hpp"
+#include "game_store.hpp"
+#include "server.hpp"
 
-namespace beast = boost::beast;
-namespace http = beast::http;
 namespace asio = boost::asio;
-namespace json = boost::json;
-namespace router = boost::urls::router;
 using tcp = asio::ip::tcp;
-
-/**
- * @brief Класс HTTP-сервера, обрабатывающий запросы на работу с играми.
- */
-struct CoreServer : std::enable_shared_from_this<CoreServer> {
-  using Request = http::request<http::string_body>;
-  using Response = http::response<http::string_body>;
-  using Handler = std::function<std::optional<Response>(
-      Request request, router::MatchesStorage matches)>;
-
-  /**
-   * @brief Конструктор нового объекта http_server
-   *
-   * @param address Адрес для прослушивания
-   * @param port Номер порта для прослушивания
-   */
-  CoreServer(std::string_view address, uint16_t port)
-      : address_(asio::ip::make_address(address)), port_(port), ioc_(),
-        workGuard_(boost::asio::make_work_guard(ioc_)), games_() {
-    BOOST_LOG_TRIVIAL(info) << "[Сервер] Инициализация CoreServer на "
-                            << address << ":" << port << std::endl;
-  }
-
-  void init() {
-    BOOST_LOG_TRIVIAL(info) << "[Сервер] Регистрация маршрутов..." << std::endl;
-    // Добавим обработчики для ресурса /games
-    router_.insert(
-        "/games", [this](Request req, auto _) -> std::optional<Response> {
-          BOOST_LOG_TRIVIAL(info) << "[Запрос] " << req.method_string() << " "
-                                  << req.target() << std::endl;
-          if (req.method() == http::verb::post) {
-            boost::uuids::uuid uuid = boost::uuids::random_generator()();
-            std::string gameId = boost::uuids::to_string(uuid);
-            std::string url = "/games/" + gameId;
-            this->games_[gameId] = "Активна";
-            json::object response;
-            response["url"] = url;
-            http::response<http::string_body> res{http::status::ok,
-                                                  req.version()};
-            res.result(http::status::created);
-            res.body() = json::serialize(response);
-            BOOST_LOG_TRIVIAL(info)
-                << "[API] Создана новая игра с id: " << gameId << std::endl;
-            return res;
-          }
-          if (req.method() == http::verb::get) {
-            json::object response;
-            json::array gameList;
-            for (auto &&[uuid, _] : games_) {
-              json::object entry{{"url", "/games/" + uuid}};
-              gameList.push_back(std::move(entry));
-            }
-            response["games"] = std::move(gameList);
-            http::response<http::string_body> res{http::status::ok,
-                                                  req.version()};
-            res.result(http::status::ok);
-            res.body() = json::serialize(response);
-            BOOST_LOG_TRIVIAL(info)
-                << "[API] Получен список всех игр. Количество: "
-                << games_.size() << std::endl;
-            return res;
-          }
-          BOOST_LOG_TRIVIAL(info)
-              << "[API] Метод не поддерживается для /games/" << std::endl;
-          return std::nullopt;
-        });
-    router_.insert(
-        "/games/{gameId}",
-        [this](Request req, auto matches) -> std::optional<Response> {
-          BOOST_LOG_TRIVIAL(info) << "[Запрос] " << req.method_string() << " "
-                                  << req.target() << std::endl;
-          auto &&gameId = matches.at("gameId");
-          auto it = games_.find(gameId);
-          if (it == games_.cend()) {
-            BOOST_LOG_TRIVIAL(info)
-                << "[API] Игра с id " << gameId << " не найдена." << std::endl;
-            http::response<http::string_body> res{http::status::not_found,
-                                                  req.version()};
-            return res;
-          }
-          if (req.method() == http::verb::get) {
-            http::response<http::string_body> res{http::status::ok,
-                                                  req.version()};
-            json::object response{{"url", "/games/" + gameId},
-                                  {"status", it->second}};
-            res.body() = json::serialize(response);
-            BOOST_LOG_TRIVIAL(info)
-                << "[API] Запрошен статус игры: " << gameId << std::endl;
-            return res;
-          }
-          if (req.method() == http::verb::delete_) {
-            games_.erase(it);
-            http::response<http::string_body> res{http::status::no_content,
-                                                  req.version()};
-            BOOST_LOG_TRIVIAL(info)
-                << "[API] Удалена игра: " << gameId << std::endl;
-            return res;
-          }
-          BOOST_LOG_TRIVIAL(info)
-              << "[API] Метод не поддерживается для /games/{gameId}"
-              << std::endl;
-          return Response{};
-        });
-    BOOST_LOG_TRIVIAL(info)
-        << "[Сервер] Маршруты успешно зарегистрированы." << std::endl;
-  }
-
-  void run() {
-    BOOST_LOG_TRIVIAL(info) << "[Сервер] Запуск сервера..." << std::endl;
-    init();
-
-    asio::signal_set signals(ioc_, SIGINT, SIGTERM);
-    signals.async_wait([this](auto, auto) {
-      BOOST_LOG_TRIVIAL(info)
-          << "[Сервер] Получен сигнал завершения. Остановка..." << std::endl;
-      ioc_.stop();
-      // Можно добавить дополнительную логику очистки
-    });
-
-    asio::co_spawn(
-        ioc_, listener({address_, port_}), [](std::exception_ptr ep) {
-          if (!ep)
-            return;
-          try {
-            std::rethrow_exception(ep);
-          } catch (const std::system_error &e) {
-            BOOST_LOG_TRIVIAL(error)
-                << "[Сервер] Системная ошибка: " << e.what()
-                << " (code: " << e.code() << ")\n";
-          } catch (const std::exception &e) {
-            BOOST_LOG_TRIVIAL(fatal)
-                << "[Сервер] Критическая ошибка: " << e.what() << "\n";
-          }
-        });
-
-    ioc_.run();
-    BOOST_LOG_TRIVIAL(info) << "[Сервер] Сервер завершил работу." << std::endl;
-  }
-
-private:
-  asio::ip::address address_;
-  uint16_t port_;
-  asio::io_context ioc_;
-  boost::asio::executor_work_guard<boost::asio::io_context::executor_type>
-      workGuard_;
-  std::unordered_map<std::string, std::string> games_;
-  router::Router<Handler> router_;
-
-  /**
-   * @brief Принимает входящие соединения и запускает сессии
-   *
-   * @return asio::awaitable<void>
-   */
-  asio::awaitable<void> listener(tcp::endpoint endpoint) {
-    try {
-      auto &&executor = co_await asio::this_coro::executor;
-      auto acceptor =
-          asio::use_awaitable.as_default_on(tcp::acceptor(executor));
-      BOOST_LOG_TRIVIAL(info) << "[Сервер] Слушаю клиентов по адресу http://"
-                              << endpoint << std::endl;
-      acceptor.open(endpoint.protocol());
-      acceptor.set_option(asio::socket_base::reuse_address(true));
-      acceptor.bind(endpoint);
-      acceptor.listen(asio::socket_base::max_listen_connections);
-      for (;;) {
-        asio::co_spawn(executor, session(co_await acceptor.async_accept()),
-                       asio::detached);
-      }
-    } catch (std::exception &e) {
-      BOOST_LOG_TRIVIAL(error)
-          << "[Сессия] Ошибка в listener: " << e.what() << std::endl;
-    }
-  }
-
-  /**
-   * @brief Корутина, обрабатывающая одну клиентскую сессию
-   *
-   * @param socket Уникальный сокет для клиентского соединения
-   * @return asio::awaitable<void>
-   */
-  asio::awaitable<void> session(tcp::socket socket) {
-    BOOST_LOG_TRIVIAL(info)
-        << "[Сессия] Новое соединение установлено." << std::endl;
-    try {
-      // Буфер будет хранить данные между итерациями
-      beast::flat_buffer buffer;
-      auto stream = asio::use_awaitable.as_default_on(
-          beast::tcp_stream(std::move(socket)));
-      for (;;) {
-        stream.expires_after(std::chrono::seconds(30));
-        http::request<http::string_body> req;
-        co_await http::async_read(stream, buffer, req);
-        auto res = handle_request(req);
-        co_await http::async_write(stream, res, asio::use_awaitable);
-        if (res.need_eof()) {
-          // Корректно закрываем соединение
-          beast::error_code ec;
-          stream.socket().shutdown(tcp::socket::shutdown_send);
-          // Не выводите ошибку, если ec == not_connected
-          break;
-        }
-      }
-
-    } catch (std::exception &e) {
-      BOOST_LOG_TRIVIAL(error) << "[Сессия] Ошибка: " << e.what() << std::endl;
-    }
-  }
-
-  /**
-   * @brief Обрабатывает HTTP-запрос
-   *
-   * @param req Входящий HTTP-запрос
-   * @return http::response<http::string_body> HTTP-ответ
-   */
-  http::response<http::string_body>
-  handle_request(const http::request<http::string_body> &req) {
-    BOOST_LOG_TRIVIAL(info)
-        << "[handle_request] Обработка запроса: " << req.method_string() << " "
-        << req.target() << std::endl;
-    http::response<http::string_body> res{http::status::ok, req.version()};
-    res.set(http::field::server, "Core");
-    res.set(http::field::content_type, "application/json");
-    res.keep_alive(req.keep_alive());
-    router::MatchesStorage matches;
-    const Handler *handler = router_.find(req.target(), matches);
-    if (handler) {
-      auto maybeResp = (*handler)(req, matches);
-      if (maybeResp) {
-        BOOST_LOG_TRIVIAL(info)
-            << "[handle_request] Запрос обработан маршрутизатором."
-            << std::endl;
-        return *maybeResp;
-      }
-    }
-    BOOST_LOG_TRIVIAL(info)
-        << "[handle_request] Не найден обработчик для маршрута." << std::endl;
-    res.result(http::status::not_found);
-    res.set(http::field::content_type, "application/json");
-    res.body() = "{}";
-    return res;
-  }
-};
 
 /**
  * @brief Главная функция для запуска HTTP-сервера
@@ -280,8 +32,9 @@ int main(int argc, char *argv[]) {
     po::options_description desc("Allowed options");
     desc.add_options()("help,h", "Show help message")(
         "host", po::value<std::string>()->default_value("127.0.0.1"),
-        "Server host address")("port", po::value<int>()->default_value(8080),
-                               "Server port number");
+        "Server host address")(
+        "port", po::value<boost::asio::ip::port_type>()->default_value(8080),
+        "Server port number");
 
     // Parse command line
     po::variables_map vm;
@@ -294,17 +47,17 @@ int main(int argc, char *argv[]) {
       return EXIT_SUCCESS;
     }
 
-    // Extract host and port values
-    std::string host = vm["host"].as<std::string>();
-    int port = vm["port"].as<int>();
+    auto host = vm["host"].as<std::string>();
+    auto port = vm["port"].as<boost::asio::ip::port_type>();
 
     BOOST_LOG_TRIVIAL(info) << "[MAIN] Параметры запуска: host=" << host
                             << ", port=" << port << std::endl;
 
-    // Initialize and run server
-    CoreServer server(host, port);
-    server.run();
-
+    std::shared_ptr<core::AbstractServer> server =
+        std::make_shared<core::CoreServer>();
+    core::GameStore games;
+    games.attachTo(server);
+    server->run({asio::ip::make_address(host), port});
   } catch (const std::exception &e) {
     BOOST_LOG_TRIVIAL(fatal) << "[MAIN] Ошибка: " << e.what() << std::endl;
     return 1;

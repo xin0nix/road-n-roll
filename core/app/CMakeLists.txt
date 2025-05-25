@@ -5,9 +5,15 @@ if(WIN32)
 endif()
 
 target_link_libraries(CoreApp PRIVATE
-    CoreLib
+    Router
+    Server
+    GameStore
     Boost::program_options
     Boost::log
+    Boost::url
+    Boost::beast
+    Boost::json
+    Boost::uuid
 )
 
 find_package(Python REQUIRED COMPONENTS Interpreter)
@@ -52,7 +58,7 @@ add_custom_command(
             --output-path ${CMAKE_SOURCE_DIR}/core-api
             --overwrite --meta setup
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    DEPENDS pycore_venv
+    DEPENDS pycore_venv ${CMAKE_SOURCE_DIR}/specs/openapi.yaml
     COMMENT "Generating OpenAPI client"
 )
 
