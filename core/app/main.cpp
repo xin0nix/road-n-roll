@@ -12,95 +12,12 @@
 #include <exception>
 #include <iostream>
 #include <string>
-#include <string_view>
-#include <unordered_map>
 
+#include "game_store.hpp"
 #include "server.hpp"
 
-namespace beast = boost::beast;
-namespace http = beast::http;
 namespace asio = boost::asio;
-namespace json = boost::json;
 using tcp = asio::ip::tcp;
-
-struct GameStore {
-  using Request = core::CoreServer::Request;
-  using Response = core::CoreServer::Response;
-  void attachTo(core::CoreServer &server) {
-    BOOST_LOG_TRIVIAL(info) << "[Сервер] Регистрация маршрутов..." << std::endl;
-    // Добавим обработчики для ресурса /games
-    server.get(
-        "/games", [this](Request req, auto _) -> std::optional<Response> {
-          json::object response;
-          json::array gameList;
-          for (auto &&[uuid, _] : games_) {
-            json::object entry{{"url", "/games/" + uuid}};
-            gameList.push_back(std::move(entry));
-          }
-          response["games"] = std::move(gameList);
-          http::response<http::string_body> res{http::status::ok,
-                                                req.version()};
-          res.result(http::status::ok);
-          res.body() = json::serialize(response);
-          BOOST_LOG_TRIVIAL(info)
-              << "[API] Получен список всех игр. Количество: " << games_.size()
-              << std::endl;
-          return res;
-        });
-    server.post(
-        "/games", [this](Request req, auto _) -> std::optional<Response> {
-          boost::uuids::uuid uuid = boost::uuids::random_generator()();
-          std::string gameId = boost::uuids::to_string(uuid);
-          std::string url = "/games/" + gameId;
-          this->games_[gameId] = "Активна";
-          json::object response;
-          response["url"] = url;
-          http::response<http::string_body> res{http::status::ok,
-                                                req.version()};
-          res.result(http::status::created);
-          res.body() = json::serialize(response);
-          BOOST_LOG_TRIVIAL(info)
-              << "[API] Создана новая игра с id: " << gameId << std::endl;
-          return res;
-        });
-    server.get("/games/{gameId}",
-               [this](Request req, auto matches) -> std::optional<Response> {
-                 auto &&gameId = matches.at("gameId");
-                 auto it = games_.find(gameId);
-                 if (it == games_.cend()) {
-                   BOOST_LOG_TRIVIAL(info) << "[API] Игра с id " << gameId
-                                           << " не найдена." << std::endl;
-                   http::response<http::string_body> res{
-                       http::status::not_found, req.version()};
-                   return res;
-                 }
-
-                 http::response<http::string_body> res{http::status::ok,
-                                                       req.version()};
-                 json::object response{{"url", "/games/" + gameId},
-                                       {"status", it->second}};
-                 res.body() = json::serialize(response);
-                 BOOST_LOG_TRIVIAL(info)
-                     << "[API] Запрошен статус игры: " << gameId << std::endl;
-                 return res;
-               });
-    server.del("/games/{gameId}",
-               [this](Request req, auto matches) -> std::optional<Response> {
-                 auto &&gameId = matches.at("gameId");
-                 auto it = games_.find(gameId);
-
-                 games_.erase(it);
-                 http::response<http::string_body> res{http::status::no_content,
-                                                       req.version()};
-                 BOOST_LOG_TRIVIAL(info)
-                     << "[API] Удалена игра: " << gameId << std::endl;
-                 return res;
-               });
-  }
-
-private:
-  std::unordered_map<std::string, std::string> games_;
-};
 
 /**
  * @brief Главная функция для запуска HTTP-сервера
@@ -136,10 +53,11 @@ int main(int argc, char *argv[]) {
     BOOST_LOG_TRIVIAL(info) << "[MAIN] Параметры запуска: host=" << host
                             << ", port=" << port << std::endl;
 
-    core::CoreServer server;
-    GameStore games;
+    std::shared_ptr<core::AbstractServer> server =
+        std::make_shared<core::CoreServer>();
+    core::GameStore games;
     games.attachTo(server);
-    server.run({asio::ip::make_address(host), port});
+    server->run({asio::ip::make_address(host), port});
   } catch (const std::exception &e) {
     BOOST_LOG_TRIVIAL(fatal) << "[MAIN] Ошибка: " << e.what() << std::endl;
     return 1;

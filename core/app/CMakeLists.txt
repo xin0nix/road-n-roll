@@ -7,6 +7,7 @@ endif()
 target_link_libraries(CoreApp PRIVATE
     Router
     Server
+    GameStore
     Boost::program_options
     Boost::log
     Boost::url
