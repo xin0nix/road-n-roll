@@ -10,20 +10,20 @@
 <body class="p-4">
 
     <h1>Мои Игры</h1>
-
-    {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-    <div>
-        {% for category, message in messages %}
-        <div class="alert alert-{{ category }} mt-3">{{ message }}</div>
-        {% endfor %}
-    </div>
-    {% endif %}
-    {% endwith %}
-
     <form action="{{ url_for('create_game_route') }}" method="post">
         <button type="submit" class="btn btn-primary">Новая Игра</button>
     </form>
+
+    {% if game_list %}
+    <div>
+        {% for game in game_list.games %}
+        <div>
+            <a href="{{ game.url }}" mt-3>"{{ game.url }}"</a>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
 
 </body>
 
