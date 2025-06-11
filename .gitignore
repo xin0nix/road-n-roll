@@ -9,3 +9,4 @@ pycore/bin/
 # Python
 .venv
 itests/dist
+__pycache__
