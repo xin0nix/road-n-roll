@@ -29,6 +29,7 @@ target_link_libraries(ServerTest
     PUBLIC
     Router
     RouterTest
+    DatabaseTest
     GTest::gtest_main
     GTest::gmock_main
     Boost::url

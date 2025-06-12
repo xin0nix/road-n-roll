@@ -7,7 +7,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 set(CMAKE_CXX_SCAN_FOR_INCLUDES OFF)
 # Specify the Boost libraries you need, including json
-set(BOOST_INCLUDE_LIBRARIES asio beast json log program_options uuid url)
+set(BOOST_INCLUDE_LIBRARIES
+  asio
+  beast
+  hana
+  json
+  log
+  program_options
+  url
+  uuid
+)
 set(BOOST_ENABLE_CMAKE ON)
 
 if(WIN32)
