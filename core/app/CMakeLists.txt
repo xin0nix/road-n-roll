@@ -5,15 +5,18 @@ if(WIN32)
 endif()
 
 target_link_libraries(CoreApp PRIVATE
+    Database
+    GameStore
     Router
     Server
-    GameStore
-    Boost::program_options
-    Boost::log
-    Boost::url
     Boost::beast
+    Boost::hana
     Boost::json
+    Boost::log
+    Boost::program_options
+    Boost::url
     Boost::uuid
+    libpqxx::pqxx
 )
 
 find_package(Python REQUIRED COMPONENTS Interpreter)

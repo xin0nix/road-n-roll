@@ -10,7 +10,7 @@ INSERT INTO game_statuses (status_name, description) VALUES
     ('finished', 'Игра завершена');
 
 CREATE TABLE games (
-    game_id UUID PRIMARY KEY,
+    game_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     status_id INT NOT NULL REFERENCES game_statuses(status_id),
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()

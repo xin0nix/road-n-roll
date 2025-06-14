@@ -36,4 +36,5 @@ target_link_libraries(ServerTest
     Boost::beast
     Boost::json
     Boost::uuid
+    Boost::hana
 )

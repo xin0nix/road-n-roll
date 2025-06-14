@@ -1,4 +1,6 @@
 #include "game_store.hpp"
+#include "database.hpp"
+#include "serializer.hpp"
 
 #include <boost/json.hpp>
 #include <boost/log/trivial.hpp>
@@ -34,6 +36,8 @@ void GameStore::attachTo(std::shared_ptr<core::AbstractServer> server) {
       "/games", [this](Request req, auto _) -> std::optional<Response> {
         boost::uuids::uuid uuid = boost::uuids::random_generator()();
         std::string gameId = boost::uuids::to_string(uuid);
+        database::RowFields fields{{"status_id", int(1)}};
+        db_->insert("games", std::move(fields));
         std::string url = "/games/" + gameId;
         this->games_[gameId] = "Активна";
         json::object response;

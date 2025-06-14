@@ -15,5 +15,9 @@ CREATE DATABASE joe OWNER joe;
 ```
 Given new permissions, let's create the database
 ```
+psql
+```
+And:
+```
 CREATE DATABASE road_n_roll;
 ```
