@@ -1,5 +1,7 @@
 #pragma once
 
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_io.hpp>
 #include <ostream>
 #include <string>
 #include <type_traits>
@@ -18,20 +20,27 @@ template <class... Ts> Overload(Ts...) -> Overload<Ts...>;
 namespace database {
 namespace hana = boost::hana;
 
-using Field = std::variant<std::string, int16_t, int32_t, int64_t, float>;
+using Field = std::variant<std::monostate, std::string, boost::uuids::uuid,
+                           int16_t, int32_t, int64_t, float>;
 using RowFields = std::unordered_map<std::string, Field>;
 
 inline std::ostream &operator<<(std::ostream &os, const Field &field) {
   auto visitor = Overload{
-      [&os](std::string s) { os << '"' << s << '"'; },
+      [&os](std::monostate) { os << "NULL"; },
+      [&os](std::string s) { os << "'" << s << "'"; },
+      [&os](boost::uuids::uuid u) {
+        os << "'" << boost::uuids::to_string(u) << "'::uuid";
+      },
       [&os](int16_t x) { os << x; },
       [&os](int32_t x) { os << x; },
       [&os](int64_t x) { os << x; },
       [&os](float x) { os << x; },
-  };
+  }; // namespace database
   std::visit(visitor, field);
   return os;
 }
+
+inline std::string stringify(const Field &field);
 
 template <typename T> T unpack(RowFields fields) {
   T object{};

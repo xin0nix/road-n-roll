@@ -1,8 +1,11 @@
 #include "database.hpp"
+#include "serializer.hpp"
 
 #include <sstream>
 
 #include <boost/log/trivial.hpp>
+#include <type_traits>
+#include <variant>
 
 namespace database {
 Database::Database(std::string databaseName, std::string userName,
@@ -14,7 +17,7 @@ Database::Database(std::string databaseName, std::string userName,
   dbConnection_ = pqxx::connection(connBuilder.str());
 }
 
-void Database::insert(std::string tableName, RowFields fields) {
+void Database::insert(std::string_view tableName, RowFields fields) {
   std::stringstream keys;
   std::stringstream values;
   bool first = true;
@@ -30,10 +33,38 @@ void Database::insert(std::string tableName, RowFields fields) {
   std::stringstream queryBuilder;
   queryBuilder << "INSERT INTO " << tableName << "(" << keys.str() << ")"
                << " VALUES " << "(" << values.str() << ")";
-  pqxx::work w(dbConnection_);
+  pqxx::work worker(dbConnection_);
   auto query = queryBuilder.str();
   BOOST_LOG_TRIVIAL(info) << "Выполняю запрос к БД: " << query;
-  w.exec(std::move(query));
-  w.commit();
+  worker.exec(std::move(query));
+  worker.commit();
+}
+
+namespace {
+constexpr uint kVarCharType = 1043;
+Field fromOid(const pqxx::field &field) {
+  BOOST_LOG_TRIVIAL(info) << "Type OId: " << field.type();
+  if (field.type() == kVarCharType) {
+    return Field(field.as<std::string>());
+  }
+  return std::monostate();
+}
+} // namespace
+
+RowFields Database::fetchSingle(std::string_view query) {
+  pqxx::work worker(dbConnection_);
+  auto rows = worker.exec(query);
+  assert(rows.size() <= 1);
+  const pqxx::row &row = rows.front();
+  RowFields fields;
+  for (const pqxx::field &col : row) {
+    const char *name = col.name();
+    if (col.is_null()) {
+      fields[name] = std::monostate();
+      continue;
+    }
+    fields[name] = fromOid(col);
+  }
+  return fields;
 }
 } // namespace database

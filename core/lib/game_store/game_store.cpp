@@ -4,6 +4,7 @@
 
 #include <boost/json.hpp>
 #include <boost/log/trivial.hpp>
+#include <format>
 
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -36,10 +37,9 @@ void GameStore::attachTo(std::shared_ptr<core::AbstractServer> server) {
       "/games", [this](Request req, auto _) -> std::optional<Response> {
         boost::uuids::uuid uuid = boost::uuids::random_generator()();
         std::string gameId = boost::uuids::to_string(uuid);
-        database::RowFields fields{{"status_id", int(1)}};
+        database::RowFields fields{{"status_id", int(1)}, {"game_id", uuid}};
         db_->insert("games", std::move(fields));
         std::string url = "/games/" + gameId;
-        this->games_[gameId] = "Активна";
         json::object response;
         response["url"] = url;
         http::response<http::string_body> res{http::status::ok, req.version()};
@@ -49,27 +49,34 @@ void GameStore::attachTo(std::shared_ptr<core::AbstractServer> server) {
             << "[API] Создана новая игра с id: " << gameId << std::endl;
         return res;
       });
-  server->get("/games/{gameId}",
-              [this](Request req, auto matches) -> std::optional<Response> {
-                auto &&gameId = matches.at("gameId");
-                auto it = games_.find(gameId);
-                if (it == games_.cend()) {
-                  BOOST_LOG_TRIVIAL(info) << "[API] Игра с id " << gameId
-                                          << " не найдена." << std::endl;
-                  http::response<http::string_body> res{http::status::not_found,
-                                                        req.version()};
-                  return res;
-                }
+  server->get(
+      "/games/{gameId}",
+      [this](Request req, auto matches) -> std::optional<Response> {
+        auto &&gameId = matches.at("gameId");
+        // std::string uuid = "fc3c9c0c-99e0-44f3-9b90-57df5ec87128";
+        auto sql = std::format(R"sql(
+                  SELECT game_statuses.status_name as status_name
+                  FROM games LEFT JOIN game_statuses
+                  ON games.status_id = game_statuses.status_id
+                  WHERE games.game_id = '{}'::uuid;)sql",
+                               gameId);
+        BOOST_LOG_TRIVIAL(info) << "[API] Запрашиваю данные игры: " << sql;
+        auto fields = db_->fetchSingle(sql);
+        if (fields.empty()) {
+          BOOST_LOG_TRIVIAL(info)
+              << "[API] Игра с id " << gameId << " не найдена." << std::endl;
+          http::response<http::string_body> res{http::status::not_found,
+                                                req.version()};
+          return res;
+        }
 
-                http::response<http::string_body> res{http::status::ok,
-                                                      req.version()};
-                json::object response{{"url", "/games/" + gameId},
-                                      {"status", it->second}};
-                res.body() = json::serialize(response);
-                BOOST_LOG_TRIVIAL(info)
-                    << "[API] Запрошен статус игры: " << gameId << std::endl;
-                return res;
-              });
+        http::response<http::string_body> res{http::status::ok, req.version()};
+        auto statusName = std::get<std::string>(fields.at("status_name"));
+        json::object response{{"url", "/games/" + gameId},
+                              {"status", statusName}};
+        res.body() = json::serialize(response);
+        return res;
+      });
   server->del("/games/{gameId}",
               [this](Request req, auto matches) -> std::optional<Response> {
                 auto &&gameId = matches.at("gameId");
