@@ -3,10 +3,12 @@
 #include <vector>
 
 #include "serializer.hpp"
+#include "query_builder.hpp"
 
 namespace database {
 struct AbstractDatabase {
-  virtual void insert(std::string_view tableName, RowFields fields) = 0;
-  virtual RowFields fetchSingle(std::string_view query) = 0;
+  virtual size_t executeCommand(Query query) = 0;
+  virtual RowFields fetchSingle(Query query) = 0;
+  virtual std::vector<RowFields> fetchMultiple(Query query) = 0;
 };
 } // namespace database

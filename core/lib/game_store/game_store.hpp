@@ -12,7 +12,7 @@ struct GameStore : std::enable_shared_from_this<GameStore> {
   void attachTo(std::shared_ptr<core::AbstractServer> server);
 
 private:
-  std::unordered_map<std::string, std::string> games_;
+  // std::unordered_map<std::string, std::string> games_;
   std::shared_ptr<database::AbstractDatabase> db_;
 };
 

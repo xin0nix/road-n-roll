@@ -24,23 +24,9 @@ using Field = std::variant<std::monostate, std::string, boost::uuids::uuid,
                            int16_t, int32_t, int64_t, float>;
 using RowFields = std::unordered_map<std::string, Field>;
 
-inline std::ostream &operator<<(std::ostream &os, const Field &field) {
-  auto visitor = Overload{
-      [&os](std::monostate) { os << "NULL"; },
-      [&os](std::string s) { os << "'" << s << "'"; },
-      [&os](boost::uuids::uuid u) {
-        os << "'" << boost::uuids::to_string(u) << "'::uuid";
-      },
-      [&os](int16_t x) { os << x; },
-      [&os](int32_t x) { os << x; },
-      [&os](int64_t x) { os << x; },
-      [&os](float x) { os << x; },
-  }; // namespace database
-  std::visit(visitor, field);
-  return os;
-}
+std::ostream &operator<<(std::ostream &os, const Field &field);
 
-inline std::string stringify(const Field &field);
+std::string stringify(const Field &field);
 
 template <typename T> T unpack(RowFields fields) {
   T object{};

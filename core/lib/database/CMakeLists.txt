@@ -1,4 +1,8 @@
-add_library(Database OBJECT "database.cpp" "serializer.cpp")
+add_library(Database OBJECT
+    database.cpp
+    serializer.cpp
+    query_builder.cpp
+)
 
 target_link_libraries(Database PRIVATE
     Boost::hana

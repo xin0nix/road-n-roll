@@ -24,6 +24,8 @@ import asyncio
 import uuid
 import pytest_asyncio
 import pytest
+import asyncpg
+import os
 
 from game_api_client import Client
 from game_api_client.api.default import create_game, get_game, delete_game, list_games
@@ -33,6 +35,15 @@ from pycore import Server
 
 CORE_HOST = "127.0.0.1"
 CORE_PORT = 4321
+
+
+def get_db_url():
+    host = os.getenv("DB_HOST", "localhost")
+    port = os.getenv("DB_PORT", "5432")
+    user = os.getenv("DB_USER", "joe")
+    password = os.getenv("DB_PASSWORD", "12345678")
+    dbname = os.getenv("DB_NAME", "road_n_roll")
+    return f"postgresql://{user}:{password}@{host}:{port}/{dbname}"
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -56,6 +67,16 @@ async def game_server():
     yield srv
     captured = srv.stop()
     print(captured)
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def cleanup_games_table():
+    yield
+    conn = await asyncpg.connect(get_db_url())
+    try:
+        await conn.execute("TRUNCATE TABLE GAMES RESTART IDENTITY CASCADE;")
+    finally:
+        await conn.close()
 
 
 @pytest.mark.asyncio
@@ -118,7 +139,7 @@ async def test_post_and_get_game(game_server):
             game_uuid = uuid.UUID(posted_game.url.split("/games/")[-1])
             game_info = await get_game.asyncio(client=client, uuid=game_uuid)
             assert game_info
-            assert game_info["status"] == "Активна"
+            assert game_info["status"] == "pending"
             assert game_info.url == posted_game.url
         except UnexpectedStatus as e:
             print(f"API Error: {e.status_code} - {e.content}")
@@ -159,6 +180,8 @@ async def test_post_and_delete_game(game_server):
             game_uuid = uuid.UUID(posted_game.url.split("/games/")[-1])
             deleted = await delete_game.asyncio_detailed(client=client, uuid=game_uuid)
             assert deleted.status_code == 204
+            deleted = await delete_game.asyncio_detailed(client=client, uuid=game_uuid)
+            assert deleted.status_code == 404
             game_info = await get_game.asyncio_detailed(client=client, uuid=game_uuid)
             assert game_info.status_code == 404
         except UnexpectedStatus as e:
