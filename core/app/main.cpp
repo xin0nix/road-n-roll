@@ -13,6 +13,8 @@
 #include <iostream>
 #include <string>
 
+#include "database.hpp"
+#include "database_iface.hpp"
 #include "game_store.hpp"
 #include "server.hpp"
 
@@ -53,9 +55,14 @@ int main(int argc, char *argv[]) {
     BOOST_LOG_TRIVIAL(info) << "[MAIN] Параметры запуска: host=" << host
                             << ", port=" << port << std::endl;
 
+    std::shared_ptr<database::AbstractDatabase> db =
+        std::make_shared<database::Database>(
+            /*databaseName*/ "road_n_roll", /*userName*/ "joe",
+            /*dbPassword*/ "12345678", /*host*/ "localhost",
+            /*port*/ 5432);
     std::shared_ptr<core::AbstractServer> server =
         std::make_shared<core::CoreServer>();
-    core::GameStore games;
+    core::GameStore games(db);
     games.attachTo(server);
     server->run({asio::ip::make_address(host), port});
   } catch (const std::exception &e) {

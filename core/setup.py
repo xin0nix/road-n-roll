@@ -16,7 +16,7 @@ def get_binary_relative_path():
 
 setup(
     name="pycore",
-    version="0.0.1",
+    version="0.0.2",
     packages=["pycore"],
     package_data={
         "pycore": [get_binary_relative_path()],

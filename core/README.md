@@ -33,6 +33,11 @@ Install the wheel in your Python environment:
 pip install dist/pycore-0.0.1-cp312-cp312-manylinux_2_28.whl
 ```
 
+PostgreSQL
+```
+sudo apt-get install libpq-dev
+```
+
 ### Verification
 Test the installation:
 ```python
