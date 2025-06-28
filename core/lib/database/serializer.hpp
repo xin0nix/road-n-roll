@@ -1,6 +1,8 @@
 #pragma once
 
-#include <stdexcept>
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_io.hpp>
+#include <ostream>
 #include <string>
 #include <type_traits>
 #include <unordered_map>
@@ -8,12 +10,23 @@
 
 #include <boost/hana.hpp>
 
+namespace {
+template <typename... Ts> struct Overload : Ts... {
+  using Ts::operator()...;
+};
+template <class... Ts> Overload(Ts...) -> Overload<Ts...>;
+} // namespace
+
 namespace database {
 namespace hana = boost::hana;
 
-using RowFields =
-    std::unordered_map<std::string, std::variant<std::string, int16_t, int32_t,
-                                                 int64_t, float, double>>;
+using Field = std::variant<std::monostate, std::string, boost::uuids::uuid,
+                           int16_t, int32_t, int64_t, float>;
+using RowFields = std::unordered_map<std::string, Field>;
+
+std::ostream &operator<<(std::ostream &os, const Field &field);
+
+std::string stringify(const Field &field);
 
 template <typename T> T unpack(RowFields fields) {
   T object{};
