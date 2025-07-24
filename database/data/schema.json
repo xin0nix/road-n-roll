@@ -1,0 +1,79 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Tiles",
+    "description": "Schema tiles",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+        "tiles": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/tile"
+            }
+        }
+    },
+    "$defs": {
+        "layer": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": [
+                    "top",
+                    "bottom",
+                    "left",
+                    "right",
+                    "middle"
+                ]
+            }
+        },
+        "labels": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": [
+                    "church",
+                    "shield"
+                ]
+            }
+        },
+        "tile": {
+            "required": [
+                "id",
+                "image",
+                "name",
+                "amount"
+            ],
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "image": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "amount": {
+                    "type": "number"
+                },
+                "labels": {
+                    "$ref": "#/$defs/labels"
+                },
+                "layers": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "road": {
+                            "$ref": "#/$defs/layer"
+                        },
+                        "city": {
+                            "$ref": "#/$defs/layer"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

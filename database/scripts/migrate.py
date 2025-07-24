@@ -1,12 +1,72 @@
 import argparse
 import asyncio
-import sys
 import asyncpg
+import json
+import os
+import sys
+import yaml
+from pathlib import Path
 
-from handle import DataBaseHandle
+from jsonschema import validate
 
 
-class DatabaseMigrator(DataBaseHandle):
+class DataBaseHandle:
+    def __init__(self):
+        self.db_url = self._get_db_url()
+        self.base_dir = Path(__file__).parent.parent
+
+    def _get_db_url(self):
+        host = os.getenv("DB_HOST", "localhost")
+        port = os.getenv("DB_PORT", "5432")
+        user = os.getenv("DB_USER", "joe")
+        password = os.getenv("DB_PASSWORD", "12345678")
+        dbname = os.getenv("DB_NAME", "road_n_roll")
+        return f"postgresql://{user}:{password}@{host}:{port}/{dbname}"
+
+
+class DataMigrator(DataBaseHandle):
+    def __init__(self):
+        super().__init__()
+        with open(self.base_dir / "data" / "data.yaml", encoding="utf-8") as f:
+            self.data = yaml.safe_load(f)
+        with open(self.base_dir / "data" / "schema.json", encoding="utf-8") as f:
+            self.schema = json.load(f)
+        validate(instance=self.data, schema=self.schema)
+
+
+class SchemaMigrator(DataBaseHandle):
+    def __init__(self):
+        super().__init__()
+        self.schema_dir = self.base_dir / "schema"
+
+    async def create_migrations_table(self, conn):
+        query = """
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            version INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            migrated_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+        """
+        await conn.execute(query)
+
+    def get_migration_files(self):
+        migrations = []
+
+        for path in sorted(self.schema_dir.iterdir()):
+            assert path.is_file()
+            assert path.name.endswith(".sql")
+            version = int(path.name.split("_")[0])
+            migrations.append(
+                {
+                    "version": version,
+                    "name": path.name,
+                    "content": path.read_text(encoding="utf-8"),
+                    "path": path,
+                }
+            )
+
+        return migrations
+
     async def get_applied_versions(self, conn):
         await self.create_migrations_table(conn)
         return {
@@ -71,5 +131,5 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    migrator = DatabaseMigrator()
-    asyncio.run(migrator.run_migrations(args.dry_run))
+    schema_migrator = SchemaMigrator()
+    asyncio.run(schema_migrator.run_migrations(args.dry_run))

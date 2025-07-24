@@ -1,0 +1,173 @@
+tiles:
+  - id: "church"
+    image: "Church.png"
+    name: "Церковь"
+    amount: 4
+    labels: ["church"]
+
+  - id: "church_w_road"
+    image: "ChurchWithRoad.png"
+    name: "Церковь с дорогой"
+    amount: 2
+    labels: ["church"]
+    layers:
+      road: ["bottom"]
+
+  - id: "corner_wall"
+    image: "CornerWall.png"
+    name: "Угловая стена"
+    amount: 3
+    layers:
+      city: ["top", "middle", "right"]
+
+  - id: "corner_wall_w_turn_road"
+    image: "CornerWallWithTurnRoad.png"
+    name: "Угловая стена с дорогой"
+    amount: 3
+    layers:
+      city: ["top", "middle", "right"]
+      road: ["left", "middle", "bottom"]
+
+  - id: "corner_wall_w_turn_road_shielded"
+    image: "CornerWallWithTurnRoad.png"
+    name: "Угловая стена с дорогой x2"
+    amount: 2
+    labels: ["shield"]
+    layers:
+      city: ["top", "middle", "right"]
+      road: ["left", "middle", "bottom"]
+
+  - id: "down_town"
+    image: "DownTown.png"
+    name: "Центр города"
+    amount: 1
+    labels: ["shield"]
+    layers:
+      city: ["top", "bottom", "left", "right", "middle"]
+
+  - id: "opposite_fields"
+    image: "OppositeFields.png"
+    name: "Тоннель"
+    amount: 1
+    layers:
+      city: ["left", "middle", "right"]
+
+  - id: "opposite_fields_shielded"
+    image: "OppositeFields.png"
+    name: "Тоннель x2"
+    amount: 2
+    labels: ["shield"]
+    layers:
+      city: ["left", "middle", "right"]
+
+  - id: "opposite_walls"
+    image: "OppositeWalls.png"
+    name: "Закуток"
+    amount: 3
+    layers:
+      city: ["top", "bottom"]
+
+  - id: "single_sided_field"
+    image: "SingleSidedField.png"
+    name: "Город и полянка"
+    amount: 3
+    layers:
+      city: ["top", "left", "right", "middle"]
+
+  - id: "single_sided_field_shielded"
+    image: "SingleSidedField.png"
+    name: "Город и полянка x2"
+    amount: 1
+    layers:
+      city: ["top", "left", "right", "middle"]
+
+  - id: "single_sided_field_w_road"
+    image: "SingleSidedFieldWithRoad.png"
+    name: "Въезд в город"
+    amount: 1
+    layers:
+      city: ["top", "left", "right", "middle"]
+      road: ["bottom"]
+
+  - id: "single_sided_field_w_road_shielded"
+    image: "SingleSidedFieldWithRoad.png"
+    name: "Въезд в город x2"
+    amount: 2
+    labels: ["shield"]
+    layers:
+      city: ["top", "left", "right", "middle"]
+      road: ["bottom"]
+
+  - id: "single_sided_wall"
+    image: "SingleSidedWall.png"
+    name: "Городская стена"
+    amount: 5
+    layers:
+      city: ["top"]
+
+  - id: "single_sided_wall_w_left_turn_road"
+    image: "SingleSidedWallWithLeftTurnRoad.png"
+    name: "Городская стена с поворотом налево"
+    amount: 3
+    layers:
+      city: ["top"]
+      road: ["left", "middle", "bottom"]
+
+  - id: "single_sided_wall_w_parallel_road"
+    image: "SingleSidedWallWithParallelRoad.png"
+    name: "Городская стена с параллельной дорогой"
+    amount: 4
+    layers:
+      city: ["top"]
+      road: ["left", "middle", "right"]
+
+  - id: "single_sided_wall_w_right_turn_road"
+    image: "SingleSidedWallWithRightTurnRoad.png"
+    name: "Городская стена с поворотом направо"
+    amount: 3
+    layers:
+      city: ["top"]
+      road: ["right", "middle", "bottom"]
+
+  - id: "single_sided_wall_w_t_crossing"
+    image: "SingleSidedWallWithTCrossing.png"
+    name: "Городская стена с Т-образным перекрёстком"
+    amount: 3
+    layers:
+      city: ["top"]
+      road: ["left", "right", "bottom"]
+
+  - id: "straight_road"
+    image: "StraightRoad.png"
+    name: "Прямая дорога"
+    amount: 8
+    layers:
+      road: ["left", "right", "middle"]
+
+  - id: "t_crossing"
+    image: "TCrossing.png"
+    name: "Т-образный перекресток"
+    amount: 4
+    layers:
+      road: ["left", "right", "bottom"]
+
+  - id: "turn_road"
+    image: "TurnRoad.png"
+    name: "Поворот"
+    amount: 9
+    layers:
+      road: ["left", "middle", "bottom"]
+
+  - id: "two_adjacent_walls"
+    image: "TwoAdjacentWalls.png"
+    name: "Две соседние стены"
+    amount: 2
+    layers:
+      city: ["top", "right"]
+
+  - id: "x_crossing"
+    image: "XCrossing.png"
+    name: "Перекрёсток"
+    amount: 1
+    layers:
+      road: ["left", "top", "right", "bottom"]
