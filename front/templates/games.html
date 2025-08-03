@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Road-N-Roll</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+</head>
+
+<body class="p-4">
+
+    <h1 class="mb-4">Мои Игры</h1>
+
+    <form action="{{ url_for('games') }}" method="post" class="mb-4">
+        <button type="submit" class="btn btn-primary">Новая Игра</button>
+    </form>
+
+    {% if games %}
+    <div class="list-group" style="max-width: 600px;">
+        {% for game in games %}
+        <div class="list-group-item d-flex justify-content-between align-items-center gap-2">
+            <!-- Clickable game name -->
+            <a href="{{ url_for('game_by_id', game_id=game['uuid']) }}"
+                class="text-decoration-none fs-5 flex-grow-1">
+                {{ game['name'] }}
+            </a>
+
+            <!-- Open button (GET request) -->
+            <form action="{{ url_for('game_by_id', game_id=game['uuid']) }}" method="get" class="mb-0">
+                <button type="submit" class="btn btn-sm btn-primary">Открыть</button>
+            </form>
+
+            <!-- Delete button (DELETE request) -->
+            <form action="{{ url_for('game_by_id', game_id=game['uuid']) }}" method="post" class="mb-0"
+                onsubmit="return confirm('Are you sure you want to delete this game?');">
+                <input type="hidden" name="_method" value="DELETE">
+                <button type="submit" class="btn btn-sm btn-danger">Удалить</button>
+            </form>
+
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p>Список игр пуст.</p>
+    {% endif %}
+
+</body>
+
+</html>
